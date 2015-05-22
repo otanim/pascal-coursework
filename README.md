@@ -1,3 +1,10 @@
 # pascalCourseWork
 My Pascal CourseWork
-<iframe width="560" height="315" src="https://www.youtube.com/embed/uPadzHyEbVo" frameborder="0" allowfullscreen></iframe>
+
+## screenshots
+### Desktop
+![alt text](https://raw.githubusercontent.com/ArmanYeghiazaryan/pascalCourseWork/master/screenshots/desktop.gif "Desktop")
+### Tron: logo
+![alt text](https://raw.githubusercontent.com/ArmanYeghiazaryan/pascalCourseWork/master/screenshots/tron_logo.gif "Tron - logo")
+### Tron: game
+![alt text](https://raw.githubusercontent.com/ArmanYeghiazaryan/pascalCourseWork/master/screenshots/tron.gif "Tron")
