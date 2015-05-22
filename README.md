@@ -1,6 +1,7 @@
 # pascal Course Work
 
-This is my course work, I did it in the second year of studying at SEUA. Then I still was a novice in programming, so do not judge strictly :smile:
+This is my course work, I did it in the second year of studying at SEUA.
+Then I still was a novice in programming, so do not judge strictly :smile:
 
 ## Demonstration
 [**YouTube**](http://www.youtube.com/watch?v=uPadzHyEbVo)
