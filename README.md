@@ -20,6 +20,7 @@ The script expects Turbo Pascal in `~/.local/opt/tp55`, with `BGI.ARC` and `UTIL
 - `src/_main/GRMOUSE.PAS`: the graphical mouse unit. It talks to the DOS mouse driver; the Turbo Pascal 7 original did this in inline assembler.
 - `src/_main/ARMFONT.INC`: the Armenian 8x8 font the program draws its texts with.
 - `bin/TRON.EXE`: the ready-to-run game.
+- `package.json`: lets other projects, like the coursework.otanim.com website, install `TRON.EXE` from a release tag (`github:otanim/pascal-coursework#v1.0.0`).
 - `tools/akconv.py`: converts between UTF-8 and the AK Yerevan DOS encoding the font uses.
 - `tools/FONT.COM`: the Armenian font driver from 1990 that `ARMFONT.INC` comes from. To edit in the Turbo Pascal editor, make a DOS copy with `tools/akconv.py encode` and run `FONT /A` first.
 
