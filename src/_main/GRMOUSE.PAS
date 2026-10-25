@@ -15,10 +15,10 @@ implementation
 
   Function InitGraphMouse:integer;{инициализация граф. курсора}
  const
-cursor:array [1..32] of word=($FFFC,$FFF8,$FFE0,$FF81,$FE01,$F803,$E003,$8007,
-                              $0007,$800F,$C00F,$801F,$021F,$07FF,$0FFF,$1FFF,
-                              $0001,$0002,$000E,$003C,$00FC,$03F8,$0FF8,$3FF0,
-                              $F0F0,$30E0,$10E0,$3FC0,$78C0,$F000,$E000,$C000);
+cursor:array [1..32] of word=($3FFF,$1FFF,$07FF,$81FF,$807F,$C01F,$C007,$E001,
+                              $E000,$F001,$F003,$F801,$F840,$FFE0,$FFF0,$FFF8,
+                              $8000,$4000,$7000,$3C00,$3F00,$1FC0,$1FF0,$0FFC,
+                              $0F0F,$070C,$0708,$03FC,$031E,$000F,$0007,$0003);
  var
   Res:integer;
   SC,OfC:word;
@@ -38,7 +38,7 @@ cursor:array [1..32] of word=($FFFC,$FFF8,$FFE0,$FF81,$FE01,$F803,$E003,$8007,
  MouseGrPresent:=1;
  asm
     mov AX,9
-    mov BX,16
+    mov BX,0
     mov CX,0
     mov ES,Sc
     mov DX,OfC
