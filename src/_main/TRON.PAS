@@ -1,1459 +1,1290 @@
-  Uses dos, crt, graph, grmouse;
+program Tron;
+{ Coursework for SEUA (2012-2014), rebuilt with Turbo Pascal 5.5.
+  A small DOS "desktop" in 640x480 VGA with a Start menu: a fake Blue Screen,
+  the Tron light-cycle game and Problem 547 (the matrix row with the most equal elements).
+  The Armenian texts use the AK Yerevan DOS encoding of FONT.COM, whose glyphs
+  ARMFONT.INC carries, and the EGA/VGA driver is linked in: TRON.EXE runs on its own. }
 
-type mat=array [1..5,1..5] of real;
-	 vec=array [1..5] of byte;
-	 ash=array [1..5] of real;
+uses Dos, Crt, Graph, GrMouse;
 
-Var m,n,k,i,lol,xxpos,yypos,X,Y,divx,divy,Conta,Bluep,Yellowp:Integer;
-	Xpos1,Ypos1,Xpos2,Ypos2,Npos1,Npos2,Winner,Vel,Ngames:Integer;
-	hh,hh0,mi,se,ms:word; hhs,mis,ses,s0,m0,h0:string;
-	_1p,out,esc,start,quest,questpad:boolean;
-	s,txt,bl,ye:string;
-	Exitgame,c:Char;
-	
-Procedure print(x0,y0:Integer; y5:byte; size:byte; s:string);
-Var i:Integer;
-Begin
-	settextstyle(0,0,size);
-	setcolor(y5);
-	for i:=1 to length(s) do
-	Begin
-		outtextxy (x0+i*8*size,y0,copy(s,i,1));
-		delay(10)
-	End;
-End;
-{======menu======}
+const
+  { Tron directions }
+  DirLeft = 1;
+  DirUp = 2;
+  DirRight = 3;
+  DirDown = 4;
 
-Procedure put3(Var xpos,ypos:Integer); {3x3 bar}
-Begin
-	bar(xpos,ypos,xpos+5,ypos+5)
-End;
+  StepDelay = 10;      { milliseconds between two moves of the light cycles }
 
-Procedure InitVar; {tvyalnei initsializatsum}
-Begin
-		Npos1:=1;
-		Npos2:=3;
-		Ypos1:=240;
-		Ypos2:=240;
-		Xpos1:=getmaxx-100;
-		Xpos2:=101;
-		out:=False;
-End;
-procedure tronimage;
-var	cp:array[1..368,1..2] of word;
+  { what a click on the desktop does }
+  actNone = 0;
+  actOpenMenu = 1;
+  actClose = 2;
+  actBlueScreen = 3;
+  actTron = 4;
+  actProblemMenu = 5;
+  actTaskText = 6;
+  actSolve = 7;
+  actExit = 8;
+
+  KeyBackspace = #8;
+  KeyEnter = #13;
+  KeyEsc = #27;
+  KeySpace = ' ';
+  { scan codes that GetKey returns for the arrow keys }
+  ScanUp = #72;
+  ScanLeft = #75;
+  ScanRight = #77;
+  ScanDown = #80;
+
+type
+  TMatrix = array[1..5, 1..5] of Real;
+  TRow = array[1..5] of Real;
+  TCounts = array[1..5] of Integer;
+  TNumberText = string[11];          { a minus, 9 digits and a point }
+
+  TStroke = record
+    X, Y: Integer;                   { first square, in 6-pixel steps from the screen centre }
+    Path: string[67];                { numpad moves: 8 up, 2 down, 4 left, 6 right, 7 9 1 3 diagonal,
+                                       5 draws the same square again }
+  end;
+
+  TOption = record
+    X1, Y1, X2, Y2: Integer;         { box }
+    TX, TY: Integer;                 { caption position }
+    Caption: string[12];
+  end;
+
+  TMenu = record
+    Count, TextSize: Integer;
+    Vertical: Boolean;               { chosen with up/down instead of left/right }
+    Items: array[1..4] of TOption;
+  end;
+
+const
+  { the TRON logo, traced square by square }
+  LogoStrokes: array[1..10] of TStroke = (
+    (X: -37; Y: -19; Path: '22366666'),
+    (X: -36; Y: -20; Path: '66666322'),
+    (X: -28; Y: -17; Path: '2222222222222366988888888888'),
+    (X: -28; Y: -18; Path: '9966666666666666666666626262244444444444444444444'),
+    (X: -3; Y: -14; Path: '444454444441222626262626262626666884848484848666868685'),
+    (X: -16; Y: -13; Path: '2222222221447888888888966'),
+    (X: -1; Y: -15; Path: '2222222622626266266666668668686886888888848848484484444444244242422'),
+    (X: 4; Y: -14; Path: '869666362322212414447487888'),
+    (X: 18; Y: -20; Path: '2222222222222222366988858966988884848484848484'),
+    (X: 28; Y: -12; Path: '2226262626262626688888888888888888444122222144')
+  );
+
+{$I ARMFONT.INC}
+
+var
+  divx, divy: Integer;               { centre of the screen }
+  MouseX, MouseY: Integer;
+  MouseDown: Boolean;                { the left button was down at the previous check }
+  MenuOpen, SubmenuOpen, TaskWindowOpen: Boolean;
+  ClockText: string[8];
+
+  { Tron: cycle 1 is cyan (arrow keys), cycle 2 is yellow (WASD or the computer) }
+  Xpos1, Ypos1, Npos1: Integer;
+  Xpos2, Ypos2, Npos2: Integer;
+  OnePlayer, RoundOver, Quit: Boolean;
+  Winner: Integer;                   { 1 cyan, 2 yellow, 0 nobody }
+
+  OldFontTable, OldExitProc: Pointer;
+
+{ ===== built-in graphics driver and font ===== }
+
+procedure EgaVgaDriverProc; external;   { EGAVGA.BGI, turned into EGAVGA.OBJ by BINOBJ when building }
+{$L EGAVGA.OBJ}
+
+{$F+}
+procedure RestoreFont;
+{ give the system its own font table back, however the program ends }
 begin
-for i:=1 to 3 do cp[i,1]:=divx-222;
-for i:=4 to 9 do cp[i,2]:=divy-96;
-for i:=10 to 15 do cp[i,2]:=divy-120;
-for i:=16 to 18 do cp[i,1]:=divx-180;
-for i:=19 to 32 do cp[i,1]:=divx-168;
-for i:=33 to 35 do cp[i,2]:=divy-18;
-for i:=36 to 47 do cp[i,1]:=divx-144;
-for i:=50 to 71 do cp[i,2]:=divy-120;
-for i:=72 to 73 do cp[i,2]:=divy-114;
-for i:=74 to 75 do cp[i,2]:=divy-108;
-for i:=76 to 77 do cp[i,1]:=divx-18;
-for i:=77 to 97 do cp[i,2]:=divy-96;
-for i:=98 to 109 do cp[i,2]:=divy-84;
-for i:=110 to 113 do cp[i,1]:=divx-84;
-for i:=114 to 115 do cp[i,1]:=divx-78;
-for i:=115 to 116 do cp[i,2]:=divy-54;
-for i:=116 to 117 do cp[i,1]:=divx-72;
-for i:=117 to 118 do cp[i,2]:=divy-48;
-for i:=118 to 119 do cp[i,1]:=divx-66;
-for i:=119 to 120 do cp[i,2]:=divy-42;
-for i:=120 to 121 do cp[i,1]:=divx-60;
-for i:=121 to 122 do cp[i,2]:=divy-36;
-for i:=122 to 123 do cp[i,1]:=divx-54;
-for i:=123 to 124 do cp[i,2]:=divy-30;
-for i:=124 to 125 do cp[i,1]:=divx-48;
-for i:=125 to 126 do cp[i,2]:=divy-24;
-for i:=126 to 127 do cp[i,1]:=divx-42;
-for i:=127 to 131 do cp[i,2]:=divy-18;
-for i:=132 to 133 do cp[i,1]:=divx-18;
-for i:=133 to 134 do cp[i,2]:=divy-30;
-for i:=134 to 135 do cp[i,1]:=divx-24;
-for i:=135 to 136 do cp[i,2]:=divy-36;
-for i:=136 to 137 do cp[i,1]:=divx-30;
-for i:=137 to 138 do cp[i,2]:=divy-42;
-for i:=138 to 139 do cp[i,1]:=divx-36;
-for i:=139 to 140 do cp[i,2]:=divy-48;
-for i:=140 to 141 do cp[i,1]:=divx-42;
-for i:=141 to 142 do cp[i,2]:=divy-54;
-for i:=142 to 143 do cp[i,1]:=divx-48;
-for i:=143 to 146 do cp[i,2]:=divy-60;
-for i:=146 to 147 do cp[i,1]:=divx-30;
-for i:=147 to 148 do cp[i,2]:=divy-66;
-for i:=148 to 149 do cp[i,1]:=divx-24;
-for i:=149 to 150 do cp[i,2]:=divy-72;
-for i:=150 to 152 do cp[i,1]:=divx-18;
-for i:=151 to 153 do cp[i,2]:=divy-78;
-for i:=153 to 162 do cp[i,1]:=divx-96;
-for i:=163 to 165 do cp[i,2]:=divy-18;
-for i:=166 to 175 do cp[i,1]:=divx-120;
-for i:=176 to 178 do cp[i,2]:=divy-84;
-for i:=179 to 186 do cp[i,1]:=divx-6;
-for i:=187 to 189 do cp[i,1]:=divx;
-for i:=190 to 191 do cp[i,1]:=divx+6;
-for i:=191 to 192 do cp[i,2]:=divy-30;
-for i:=192 to 193 do cp[i,1]:=divx+12;
-for i:=193 to 195 do cp[i,2]:=divy-24;
-for i:=196 to 203 do cp[i,2]:=divy-18;
-for i:=203 to 204 do cp[i,1]:=divx+66;
-for i:=204 to 206 do cp[i,2]:=divy-24;
-for i:=207 to 208 do cp[i,2]:=divy-30;
-for i:=208 to 209 do cp[i,1]:=divx+84;
-for i:=209 to 210 do cp[i,2]:=divy-36;
-for i:=210 to 212 do cp[i,1]:=divx+90;
-for i:=212 to 213 do cp[i,2]:=divy-48;
-for i:=213 to 220 do cp[i,1]:=divx+96;
-for i:=220 to 221 do cp[i,2]:=divy-90;
-for i:=221 to 223 do cp[i,1]:=divx+90;
-for i:=223 to 224 do cp[i,2]:=divy-102;
-for i:=224 to 225 do cp[i,1]:=divx+84;
-for i:=225 to 226 do cp[i,2]:=divy-108;
-for i:=226 to 227 do cp[i,1]:=divx+78;
-for i:=227 to 229 do cp[i,2]:=divy-114;
-for i:=229 to 230 do cp[i,1]:=divx+66;
-for i:=230 to 237 do cp[i,2]:=divy-120;
-for i:=237 to 238 do cp[i,1]:=divx+24;
-for i:=239 to 240 do cp[i,2]:=divy-114;
-for i:=240 to 241 do cp[i,1]:=divx+12;
-for i:=241 to 242 do cp[i,2]:=divy-108;
-for i:=242 to 243 do cp[i,1]:=divx+6;
-for i:=243 to 244 do cp[i,2]:=divy-102;
-for i:=244 to 246 do cp[i,1]:=divx;
-for i:=248 to 249 do cp[i,2]:=divy-90;
-for i:=250 to 253 do cp[i,2]:=divy-96;
-for i:=254 to 255 do cp[i,2]:=divy-90;
-for i:=255 to 256 do cp[i,1]:=divx+66;
-for i:=257 to 260 do cp[i,1]:=divx+72;
-for i:=261 to 262 do cp[i,1]:=divx+66;
-for i:=264 to 267 do cp[i,2]:=divy-42;
-for i:=268 to 269 do cp[i,2]:=divy-48;
-for i:=269 to 270 do cp[i,1]:=divx+24;
-for i:=271 to 274 do cp[i,1]:=divx+18;
-for i:=275 to 291 do cp[i,1]:=divx+108;
-for i:=292 to 294 do cp[i,2]:=divy-18;
-for i:=295 to 300 do cp[i,1]:=divx+132;
-for i:=301 to 303 do cp[i,2]:=divy-54;
-for i:=304 to 308 do cp[i,1]:=divx+156;
-for i:=309 to 310 do cp[i,1]:=divx+150;
-for i:=310 to 311 do cp[i,2]:=divy-90;
-for i:=311 to 312 do cp[i,1]:=divx+144;
-for i:=312 to 313 do cp[i,2]:=divy-96;
-for i:=313 to 314 do cp[i,1]:=divx+138;
-for i:=314 to 315 do cp[i,2]:=divy-102;
-for i:=315 to 316 do cp[i,1]:=divx+132;
-for i:=316 to 317 do cp[i,2]:=divy-108;
-for i:=317 to 318 do cp[i,1]:=divx+126;
-for i:=318 to 319 do cp[i,2]:=divy-114;
-for i:=319 to 320 do cp[i,1]:=divx+120;
-for i:=320 to 321 do cp[i,2]:=divy-120;
-for i:=322 to 325 do cp[i,1]:=divx+168;
-for i:=326 to 327 do cp[i,1]:=divx+174;
-for i:=327 to 328 do cp[i,2]:=divy-48;
-for i:=328 to 329 do cp[i,1]:=divx+180;
-for i:=329 to 330 do cp[i,2]:=divy-42;
-for i:=330 to 331 do cp[i,1]:=divx+186;
-for i:=331 to 332 do cp[i,2]:=divy-36;
-for i:=332 to 333 do cp[i,1]:=divx+192;
-for i:=333 to 334 do cp[i,2]:=divy-30;
-for i:=334 to 335 do cp[i,1]:=divx+198;
-for i:=335 to 336 do cp[i,2]:=divy-24;
-for i:=336 to 337 do cp[i,1]:=divx+204;
-for i:=337 to 339 do cp[i,2]:=divy-18;
-for i:=339 to 356 do cp[i,1]:=divx+216;
-for i:=356 to 359 do cp[i,2]:=divy-120;
-for i:=360 to 365 do cp[i,1]:=divx+192;
-for i:=366 to 368 do cp[i,2]:=divy-78;
-cp[1,2]:=divy-114;
-cp[2,2]:=divy-108;
-cp[3,2]:=divy-102;
-cp[4,1]:=divx-216;
-cp[5,1]:=divx-210;
-cp[6,1]:=divx-204;
-cp[7,1]:=divx-198;
-cp[8,1]:=divx-192;
-cp[9,1]:=divx-186;
-cp[10,1]:=divx-216;
-cp[11,1]:=divx-210;
-cp[12,1]:=divx-204;
-cp[13,1]:=divx-198;
-cp[14,1]:=divx-192;
-cp[15,1]:=divx-186;
-cp[16,2]:=divy-114;
-cp[17,2]:=divy-108;
-cp[18,2]:=divy-102;
-cp[19,2]:=divy-102;
-cp[20,2]:=divy-96;
-cp[21,2]:=divy-90;
-cp[22,2]:=divy-84;
-cp[23,2]:=divy-78;
-cp[24,2]:=divy-72;
-cp[25,2]:=divy-66;
-cp[26,2]:=divy-60;
-cp[27,2]:=divy-54;
-cp[28,2]:=divy-48;
-cp[29,2]:=divy-42;
-cp[30,2]:=divy-36;
-cp[31,2]:=divy-30;
-cp[32,2]:=divy-24;
-cp[33,1]:=divx-162;
-cp[34,1]:=divx-156;
-cp[35,1]:=divx-150;
-cp[36,2]:=divy-24;
-cp[37,2]:=divy-30;
-cp[38,2]:=divy-36;
-cp[39,2]:=divy-42;
-cp[40,2]:=divy-48;
-cp[41,2]:=divy-54;
-cp[42,2]:=divy-60;
-cp[43,2]:=divy-66;
-cp[44,2]:=divy-72;
-cp[45,2]:=divy-78;
-cp[46,2]:=divy-84;
-cp[47,2]:=divy-90;
-cp[48,1]:=divx-168;
-cp[48,2]:=divy-108;
-cp[49,1]:=divx-162;
-cp[49,2]:=divy-114;
-cp[50,1]:=divx-156;
-cp[51,1]:=divx-150;
-cp[52,1]:=divx-144;
-cp[53,1]:=divx-138;
-cp[54,1]:=divx-132;
-cp[55,1]:=divx-126;
-cp[56,1]:=divx-120;
-cp[57,1]:=divx-114;
-cp[58,1]:=divx-108;
-cp[59,1]:=divx-102;
-cp[60,1]:=divx-96;
-cp[61,1]:=divx-90;
-cp[62,1]:=divx-84;
-cp[63,1]:=divx-78;
-cp[64,1]:=divx-72;
-cp[65,1]:=divx-66;
-cp[66,1]:=divx-60;
-cp[67,1]:=divx-54;
-cp[68,1]:=divx-48;
-cp[69,1]:=divx-42;
-cp[70,1]:=divx-36;
-cp[71,1]:=divx-30;
-cp[72,1]:=divx-30;
-cp[73,1]:=divx-24;
-cp[74,1]:=divx-24;
-cp[75,1]:=divx-18;
-cp[76,2]:=divy-102;
-cp[78,1]:=divx-24;
-cp[79,1]:=divx-30;
-cp[80,1]:=divx-36;
-cp[81,1]:=divx-42;
-cp[82,1]:=divx-48;
-cp[83,1]:=divx-54;
-cp[84,1]:=divx-60;
-cp[85,1]:=divx-66;
-cp[86,1]:=divx-72;
-cp[87,1]:=divx-78;
-cp[88,1]:=divx-84;
-cp[89,1]:=divx-90;
-cp[90,1]:=divx-96;
-cp[91,1]:=divx-102;
-cp[92,1]:=divx-108;
-cp[93,1]:=divx-114;
-cp[94,1]:=divx-120;
-cp[95,1]:=divx-126;
-cp[96,1]:=divx-132;
-cp[97,1]:=divx-138;
-cp[98,1]:=divx-18;
-cp[99,1]:=divx-24;
-cp[100,1]:=divx-30;
-cp[101,1]:=divx-36;
-cp[102,1]:=divx-42;
-cp[103,1]:=divx-42;
-cp[104,1]:=divx-48;
-cp[105,1]:=divx-54;
-cp[106,1]:=divx-60;
-cp[107,1]:=divx-66;
-cp[108,1]:=divx-72;
-cp[109,1]:=divx-78;
-cp[110,2]:=divy-78;
-cp[111,2]:=divy-72;
-cp[112,2]:=divy-66;
-cp[113,2]:=divy-60;
-cp[114,2]:=divy-60;
-cp[128,1]:=divx-36;
-cp[129,1]:=divx-30;
-cp[130,1]:=divx-24;
-cp[131,1]:=divx-18;
-cp[132,2]:=divy-24;
-cp[144,1]:=divx-42;
-cp[145,1]:=divx-36;
-cp[154,2]:=divy-72;
-cp[155,2]:=divy-66;
-cp[156,2]:=divy-60;
-cp[157,2]:=divy-54;
-cp[158,2]:=divy-48;
-cp[159,2]:=divy-42;
-cp[160,2]:=divy-36;
-cp[161,2]:=divy-30;
-cp[162,2]:=divy-24;
-cp[163,1]:=divx-102;
-cp[164,1]:=divx-108;
-cp[165,1]:=divx-114;
-cp[166,2]:=divy-24;
-cp[167,2]:=divy-30;
-cp[168,2]:=divy-36;
-cp[169,2]:=divy-42;
-cp[170,2]:=divy-48;
-cp[171,2]:=divy-54;
-cp[172,2]:=divy-60;
-cp[173,2]:=divy-66;
-cp[174,2]:=divy-72;
-cp[175,2]:=divy-78;
-cp[176,1]:=divx-114;
-cp[177,1]:=divx-108;
-cp[178,1]:=divx-102;
-cp[179,2]:=divy-90;
-cp[180,2]:=divy-84;
-cp[181,2]:=divy-78;
-cp[182,2]:=divy-72;
-cp[183,2]:=divy-66;
-cp[184,2]:=divy-60;
-cp[185,2]:=divy-54;
-cp[186,2]:=divy-48;
-cp[187,2]:=divy-48;
-cp[188,2]:=divy-42;
-cp[189,2]:=divy-36;
-cp[190,2]:=divy-36;
-cp[194,1]:=divx+18;
-cp[195,1]:=divx+24;
-cp[196,1]:=divx+24;
-cp[197,1]:=divx+30;
-cp[198,1]:=divx+36;
-cp[199,1]:=divx+42;
-cp[200,1]:=divx+48;
-cp[201,1]:=divx+54;
-cp[202,1]:=divx+60;
-cp[205,1]:=divx+72;
-cp[206,1]:=divx+78;
-cp[207,1]:=divx+78;
-cp[211,2]:=divy-42;
-cp[214,2]:=divy-54;
-cp[215,2]:=divy-60;
-cp[216,2]:=divy-66;
-cp[217,2]:=divy-72;
-cp[218,2]:=divy-78;
-cp[219,2]:=divy-84;
-cp[222,2]:=divy-96;
-cp[228,1]:=divx+72;
-cp[231,1]:=divx+60;
-cp[232,1]:=divx+54;
-cp[233,1]:=divx+48;
-cp[234,1]:=divx+42;
-cp[235,1]:=divx+36;
-cp[236,1]:=divx+30;
-cp[238,2]:=divy-114;
-cp[239,1]:=divx+18;
-cp[245,2]:=divy-96;
-cp[246,2]:=divy-90;
-cp[247,1]:=divx+24;
-cp[247,2]:=divy-84;
-cp[248,1]:=divx+24;
-cp[249,1]:=divx+30;
-cp[250,1]:=divx+36;
-cp[251,1]:=divx+42;
-cp[252,1]:=divx+48;
-cp[253,1]:=divx+54;
-cp[254,1]:=divx+60;
-cp[256,2]:=divy-84;
-cp[257,2]:=divy-78;
-cp[258,2]:=divy-72;
-cp[259,2]:=divy-66;
-cp[260,2]:=divy-60;
-cp[261,2]:=divy-54;
-cp[262,2]:=divy-48;
-cp[263,1]:=divx+60;
-cp[263,2]:=divy-48;
-cp[264,1]:=divx+54;
-cp[265,1]:=divx+48;
-cp[266,1]:=divx+42;
-cp[267,1]:=divx+36;
-cp[268,1]:=divx+30;
-cp[270,2]:=divy-54;
-cp[271,2]:=divy-60;
-cp[272,2]:=divy-66;
-cp[273,2]:=divy-72;
-cp[274,2]:=divy-78;
-cp[275,2]:=divy-120;
-cp[276,2]:=divy-114;
-cp[277,2]:=divy-108;
-cp[278,2]:=divy-102;
-cp[279,2]:=divy-96;
-cp[280,2]:=divy-90;
-cp[281,2]:=divy-84;
-cp[282,2]:=divy-78;
-cp[283,2]:=divy-72;
-cp[284,2]:=divy-66;
-cp[285,2]:=divy-60;
-cp[286,2]:=divy-54;
-cp[287,2]:=divy-48;
-cp[288,2]:=divy-42;
-cp[289,2]:=divy-36;
-cp[290,2]:=divy-30;
-cp[291,2]:=divy-24;
-cp[292,1]:=divx+114;
-cp[293,1]:=divx+120;
-cp[294,1]:=divx+126;
-cp[295,2]:=divy-24;
-cp[296,2]:=divy-30;
-cp[297,2]:=divy-36;
-cp[298,2]:=divy-42;
-cp[299,2]:=divy-46;
-cp[300,2]:=divy-48;
-cp[301,1]:=divx+138;
-cp[302,1]:=divx+144;
-cp[303,1]:=divx+150;
-cp[304,2]:=divy-60;
-cp[305,2]:=divy-66;
-cp[306,2]:=divy-72;
-cp[307,2]:=divy-78;
-cp[308,2]:=divy-84;
-cp[309,2]:=divy-84;
-cp[321,1]:=divx+114;
-cp[322,2]:=divy-72;
-cp[323,2]:=divy-66;
-cp[324,2]:=divy-60;
-cp[325,2]:=divy-54;
-cp[326,2]:=divy-54;
-cp[338,1]:=divx+210;
-cp[340,2]:=divy-24;
-cp[341,2]:=divy-30;
-cp[342,2]:=divy-36;
-cp[343,2]:=divy-42;
-cp[344,2]:=divy-48;
-cp[345,2]:=divy-54;
-cp[346,2]:=divy-60;
-cp[347,2]:=divy-66;
-cp[348,2]:=divy-72;
-cp[349,2]:=divy-78;
-cp[350,2]:=divy-84;
-cp[351,2]:=divy-90;
-cp[352,2]:=divy-96;
-cp[353,2]:=divy-102;
-cp[354,2]:=divy-108;
-cp[355,2]:=divy-114;
-cp[357,1]:=divx+210;
-cp[358,1]:=divx+204;
-cp[359,1]:=divx+198;
-cp[360,2]:=divy-114;
-cp[361,2]:=divy-108;
-cp[362,2]:=divy-102;
-cp[363,2]:=divy-96;
-cp[364,2]:=divy-90;
-cp[365,2]:=divy-84;
-cp[366,1]:=divx+186;
-cp[367,1]:=divx+180;
-cp[368,1]:=divx+174;
-
-setfillstyle(1,2);
-for i:=1 to 368 do
-if not keypressed then
-begin
-x:=cp[i,1];
-y:=cp[i,2];
-put3(x,y);
-delay(10)
+  SetIntVec($1F, OldFontTable);
+  ExitProc := OldExitProc
 end;
-readkey
+{$F-}
+
+procedure UseArmenianFont;
+{ graphics text takes characters $80..$FF from the table at interrupt vector 1Fh }
+begin
+  GetIntVec($1F, OldFontTable);
+  SetIntVec($1F, @ArmenianFont);
+  OldExitProc := ExitProc;
+  ExitProc := @RestoreFont
 end;
 
-Procedure newgame(b1,b2,o1,o2:byte); {*Tron* nor khagh? Yes/No}
-Begin
-	setfillstyle(1,b1);
-	bar(205,divy,305,divy + 50);
-	setfillstyle(1,b2);
-	bar(330,divy,433,divy + 50);
+{ ===== keyboard, files and text ===== }
 
-	settextstyle(0,0,2);
-	setcolor(o1);
-	outtextxy(230,divy+20,'Ä©Ø');
-	setcolor(o2);
-	outtextxy(360,divy+20,'Æ·');
-End;
+procedure GetKey(var ch: Char; var Ext: Boolean);
+{ read one key; an arrow or F-key arrives as #0 + scan code and comes back as the scan code with Ext set }
+begin
+  ch := ReadKey;
+  Ext := ch = #0;
+  if Ext then
+    ch := ReadKey
+end;
 
-Procedure gamelvl1(b1,b2,b3,b4,o1,o2,o3,o4:byte);
-var xc:integer;
-Begin
-if _1p then xc:=90 else xc:=215;
-	setfillstyle(1,b1);
-	bar(xc,divy+62,xc+80,divy + 92);
-	setfillstyle(1,b2);
-	bar(xc,divy+102,xc+80,divy + 132);
-	setfillstyle(1,b3);
-	bar(xc,divy+142,xc+80,divy + 172);
-	setfillstyle(1,b4);
-	bar(xc,divy+182,xc+80,divy + 212);
-	
-	settextstyle(0,0,1);
-	setcolor(o1);
-	outtextxy(xc+5,divy+77,'5  ôÅ£');
-	setcolor(o2);
-	outtextxy(xc+5,divy+117,'10 ôÅ£');
-	setcolor(o3);
-	outtextxy(xc+5,divy+157,'25 ôÅ£');
-	setcolor(o4);
-	outtextxy(xc+5,divy+197,'50 ôÅ£');
-End;
+procedure WaitKey;
+{ wait for a fresh key press: drop keys already typed or still held down }
+var
+  ch: Char;
+  Ext: Boolean;
+begin
+  repeat
+    while KeyPressed do
+      ch := ReadKey;
+    Delay(300)
+  until not KeyPressed;
+  GetKey(ch, Ext)
+end;
 
-Procedure gamemenu1(b1,b2,b3,b4,o1,o2,o3,o4:byte); {*Tron* 1 hogi / 2 hogi / paymanner / elq}
-Begin
-	setfillstyle(1,b1);
-	bar(80,divy,180,divy + 50);
-	setfillstyle(1,b2);
-	bar(205,divy,305,divy + 50);
-	setfillstyle(1,b3);
-	bar(330,divy,433,divy + 50);
-	setfillstyle(1,b4);
-	bar(455,divy,555,divy + 50);
+function HomeFile(name: string): string;
+{ the file called name in the folder TRON.EXE was started from }
+var
+  p: string;
+  i: Integer;
+begin
+  p := ParamStr(0);
+  i := Length(p);
+  while (i > 0) and (p[i] <> '\') do
+    i := i - 1;
+  HomeFile := Copy(p, 1, i) + name
+end;
 
-	settextstyle(0,0,1);
-	setcolor(o1);
-	outtextxy(90,divy+20,'1 ôÅ£ÅÒØ£');
-	setcolor(o2);
-	outtextxy(210,divy+20,'2 ôÅ£ÅÒØ£');
-	setcolor(o3);
-	outtextxy(340,divy+20,'‚Å©ßÅ´´âÔ');
-	setcolor(o4);
-	outtextxy(470,divy+20,'àó˜');
-End;
+function TwoDigits(n: Word): string;
+var
+  s: string;
+begin
+  Str(n, s);
+  if Length(s) = 1 then
+    s := '0' + s;
+  TwoDigits := s
+end;
 
-{======Tron======}
+procedure OutCentered(y: Integer; s: string);
+{ s centred on the screen in the current text style }
+begin
+  OutTextXY(divx - TextWidth(s) div 2, y, s)
+end;
 
+procedure TypeText(x0, y0: Integer; color: Word; size: Word; s: string);
+{ write s one character at a time, like a typewriter }
+var
+  i: Integer;
+begin
+  SetTextStyle(DefaultFont, HorizDir, size);
+  SetColor(color);
+  for i := 1 to Length(s) do
+  begin
+    OutTextXY(x0 + i * 8 * size, y0, s[i]);
+    Delay(10)
+  end
+end;
 
-Procedure put(Var xpos,ypos:Integer; col:word); {2x2 putpixel}
-Begin
-	setfillstyle(1,col);
-	bar(xpos,ypos,xpos+1,ypos+1);
-End;
+function InRect(x, y, x1, y1, x2, y2: Integer): Boolean;
+begin
+  InRect := (x >= x1) and (x <= x2) and (y >= y1) and (y <= y2)
+end;
 
+{ ===== menus ===== }
 
-Procedure PressKey (Var Npos1,Npos2:Integer); {khaghatsoghneri ashkhatanqi kazmakerpum}
-Var Ch:Char;
-	Num:Integer;
-Begin
-	If Keypressed then
-		Ch:=ReadKey;
-		Num:=Ord(Ch);
-		
-		Case Num of
-			75:If Npos1<>3 then Npos1:=1;
-			72:If Npos1
-      <>4 then Npos1:=2;
-			77:If Npos1<>1 then Npos1:=3;
-			80:If Npos1<>2 then Npos1:=4
-		End;
-    if _1p then
-	Begin
-		lol:=0;
-		xxpos:=xpos2;
-		yypos:=ypos2;
-		repeat
-			lol:=lol+1;
-			Case Npos2 of
-				1:xxpos:=xxpos-2;
-				2:yypos:=yypos-2;
-				3:xxpos:=xxpos+2;
-				4:yypos:=yypos+2
-			End
-		until (getpixel(xxpos,yypos)<>0)or(lol=40);
-		if random(lol) = 0 then
-			Case random(4)+1 of
-				1:If (Npos2<>1)and(Npos2<>3) then Npos2:=1;
-				2:If (Npos2<>2)and(Npos2<>4) then Npos2:=2;
-				3:If (Npos2<>3)and(Npos2<>1) then Npos2:=3;
-				4:If (Npos2<>4)and(Npos2<>2) then Npos2:=4
-			End;
-			for i:=1 to 2 do
-			begin
-				case Npos2 of
-					1:if getpixel(xpos2-2,ypos2)<>0 then Npos2:=4;
-					2:if getpixel(xpos2,ypos2-2)<>0 then Npos2:=3;
-					3:If getpixel(xpos2+2,ypos2)<>0 then Npos2:=2;
-					4:If getpixel(xpos2,ypos2+2)<>0 then Npos2:=1
-				End;
-				Case Npos2 of
-					1:if getpixel(xpos2-2,ypos2)<>0 then Npos2:=2;
-					2:if getpixel(xpos2,ypos2-2)<>0 then Npos2:=1;
-					3:If getpixel(xpos2+2,ypos2)<>0 then Npos2:=4;
-					4:If getpixel(xpos2,ypos2+2)<>0 then Npos2:=3
-				End
-			end;
-				
-	End
-	else
-	Begin
-		ch:=upcase(ch);
-		Case Ch of
-			'A':If Npos2<>3 then Npos2:=1;
-			'W':If Npos2<>4 then Npos2:=2;
-			'D':If Npos2<>1 then Npos2:=3;
-			'S':If Npos2<>2 then Npos2:=4
-		End
-	End;
-		if ord(ch)=27 then
-	begin
-	out:=true;
-	esc:=true;
+procedure SetOption(var o: TOption; x1, y1, x2, y2, tx, ty: Integer; caption: string);
+begin
+  o.X1 := x1;
+  o.Y1 := y1;
+  o.X2 := x2;
+  o.Y2 := y2;
+  o.TX := tx;
+  o.TY := ty;
+  o.Caption := caption
+end;
+
+procedure DrawMenu(var m: TMenu; selected: Integer);
+{ selected = 0 draws every option grey, for a menu that is waiting behind another one }
+var
+  i: Integer;
+begin
+  SetTextStyle(DefaultFont, HorizDir, m.TextSize);
+  for i := 1 to m.Count do
+    with m.Items[i] do
+    begin
+      if selected = 0 then
+      begin
+        SetFillStyle(SolidFill, LightGray);
+        SetColor(DarkGray)
+      end
+      else if i = selected then
+      begin
+        SetFillStyle(SolidFill, LightGreen);
+        SetColor(Green)
+      end
+      else
+      begin
+        SetFillStyle(SolidFill, LightBlue);
+        SetColor(Blue)
+      end;
+      Bar(X1, Y1, X2, Y2);
+      OutTextXY(TX, TY, Caption)
     end
-	
-End;
-
-Procedure ScrnOutput; {haghtogh khakhatsoghi stugum ev nerkum}
-Var Color:Word;
-Begin
-	Case Npos1 of
-		1:Xpos1:=Xpos1-2;
-		2:Ypos1:=Ypos1-2;
-		3:Xpos1:=Xpos1+2;
-		4:Ypos1:=Ypos1+2
-	End;
-		If getpixel(xpos1,ypos1)<>0 then
-		If getpixel(xpos2,ypos2)<>0 then
-		Begin
-		out:=true;
-		winner:=2
-		End;
-	Put(Xpos1,Ypos1,cyan);
-	Case Npos2 of
-		1:Xpos2:=Xpos2-2;
-		2:Ypos2:=Ypos2-2;
-		3:Xpos2:=Xpos2+2;
-		4:Ypos2:=Ypos2+2
-	End;
-	If getpixel(xpos2,ypos2)<>0 then
-		If getpixel(xpos1,ypos1)<>0 then
-		Begin
-		out:=true;
-		out:=true;
-		If winner=2 then
-			winner:=0
-		else
-			winner:=1
-		End;
-	Put(Xpos2,Ypos2,yellow);
-	delay(Vel)
-End;
-
-procedure rules;
-begin
-cleardevice;
-setcolor(2);
-s:='ÇØÎÅ´áÅùØÛë©ØÛ´';
-outtextxy(divx-length(s)*4,100,s);
-s:='òÅ£ï ´„ÅÌÅù´ ç áØÛÔÈ ÉâÔâó üÅùÅÁÅùØÔáï´ ùÅÁÅÎÅÔØÛßïÒ:';
-setcolor(7);
-outtextxy(divx-length(s)*4,115,s);
-s:='òÅ£ÅÒØ£è üÅßÅÔÎØÛß ç üÅ£ëØ£, âëâ üÅùÅÁÅùØÔáè ÉÅôÎâó ç ï´·-ØÔ ôØ·è´áØÌï:';
-outtextxy(divx-length(s)*4,130,s);
-setcolor(6);
-s:='úÅÁÅÎÅÔØÛß';
-outtextxy(divx-length(s)*4,180,s);
-s:='        ôÅ£ÅÒØ£` ÎâÔâÛ` W, ´âÔ˜âÛ` S, ÅÂ` D, °Åô` A:';
-setcolor(7);
-outtextxy(divx-length(s)*4,195,s);
-setcolor(3);
-outtextxy(divx-length(s)*4,195,'úÅ„ØÛ©Ì');
-s:='      ôÅ£ÅÒØ£` ÎâÔâÛ` ^, ´âÔ˜âÛ` v, ÅÂ` >, °Åô` <:';
-setcolor(7);
-outtextxy(divx-length(s)*4,210,s);
-setcolor(14);
-outtextxy(divx-length(s)*4,210,'Üâ£ï´');
-s:='Êâìïß´âÔ';
-setcolor(9);
-outtextxy(divx-length(s)*4,260,s);
-s:='òÅ£ÅÒØ£´ è´ááâß üÅßÅùÅÔÖ·ï: òÅ£ÅÒØ£ï ÖØÛ©´è`        , üÅßÅùÅÔÖ·ï´è`      :';
-setcolor(7);
-outtextxy(divx-length(s)*4,275,s);
-setcolor(3);
-outtextxy(divx-length(s)*4+360,275,'ùÅ„ØÛ©Ì');
-setcolor(14);
-outtextxy(divx-length(s)*4+544,275,'áâ£ï´');
-s:='òÅ£ÅÒØ£´ è´ááâß ôÅ£ÅÒØ£ï: òÅ£ÅÒØ£´âÔï ÖØÛ©´âÔè`       âÛ        :';
-setcolor(7);
-outtextxy(divx-length(s)*4,290,s);
-setcolor(14);
-outtextxy(divx-length(s)*4+385,290,'áâ£ï´');
-setcolor(3);
-outtextxy(divx-length(s)*4+456,290,'ùÅ„ØÛ©Ì');
-readkey;
-cleardevice
 end;
 
-
-Procedure the_game; {Tron}
-var s:string;
- Begin
-
-	exitgame:='Y';
-	While exitgame='Y' do
-	Begin
-		yellowp:=0;
-		bluep:=0;
-		vel:=10;
-		cleardevice;
-		esc:=false;
-		while (bluep<ngames) and (yellowp<ngames) and (not esc) do
-		Begin
-		initvar;
-		SetColor(9);
-
-			setlinestyle(0,0,3);
-			Rectangle(0,20,getmaxx,getmaxy);
-
-			str(bluep,bl);
-			str(yellowp,ye);
-			s:='        '+ye+':'+bl+'          ';
-			settextstyle(0,0,2);
-			setcolor(green);
-				outtextxy(divx - length(s)*8,2,s);
-				setcolor(14);
-				outtextxy(divx - length(s)*8,2,'Üâ£ï´');
-				setcolor(3);
-				outtextxy(divx + length(s)*8-112,2,'úÅ„ØÛ©Ì');
-
-
-			winner:=0;
-
-			While out=False do
-			Begin
-				Presskey(Npos1,Npos2);
-				ScrnOutput;
-			End;
-			if not esc then
-			begin
-				If winner=1 then
-					bluep:=bluep+1
-				Else If winner=2 then
-					yellowp:=yellowp+1;
-				s:='        '+ye+':'+bl+'          ';
-				setcolor(black);
-				outtextxy(divx - length(s)*8,2,s);
-				outtextxy(divx - length(s)*8,2,'Üâ£ï´');
-				outtextxy(divx + length(s)*8-112,2,'úÅ„ØÛ©Ì');
-
-				str(bluep,bl);
-				str(yellowp,ye);
-				s:='        '+ye+':'+bl+'          ';
-
-				setcolor(green);
-				outtextxy(divx - length(s)*8,2,s);
-				setcolor(14);
-				outtextxy(divx - length(s)*8,2,'Üâ£ï´');
-				setcolor(3);
-				outtextxy(divx + length(s)*8-112,2,'úÅ„ØÛ©Ì');
-				readkey
-			end;
-			cleardevice
-		End;
-		if not esc then
-		begin
-		settextstyle(0,0,4);
-		If bluep>yellowp then
-		Begin
-			setcolor(lightblue);
-			outtextxy(divx-250,divy - 20,'úÅ„ØÛ©Ìè üÅ£ëâÒ!')
-		End
-		Else if bluep<yellowp then
-		Begin
-			setcolor(yellow);
-			outtextxy(divx-225,divy - 20,'Üâ£ï´è üÅ£ëâÒ!')
-		End;
-		readkey;
-		cleardevice;
-		k:=1;
-		settextstyle(0,0,3);
-		setcolor (red);
-		outtextxy(divx-95,divy-50,'™ØÔ ôÅ¸£');
-			Repeat
-					case k of
-						1:newgame(10,9,2,1);
-						2:newgame(9,10,1,2)
-					End;
-				c:=readkey;
-
-				case ord(c) of
-					77: k:=k+1;
-					75: k:=k-1
-				End;
-
-				case k of
-					3:k:=1;
-					0:k:=2
-				End
-
-			Until (ord(c)=13)or(ord(c)=32);
-		cleardevice;
-		case k of
-			1:exitgame:='Y';
-			2:exitgame:='N'
-		End
-		end else exitgame:='N';
-	End;
-	cleardevice
- End;
-
-Procedure gamelvl; {*Tron* 1 hogi / 2 hogi / paymanner / elq}
-Begin
-	gamemenu1(7,7,7,7,8,8,8,8);
-	k:=1;
-	Repeat
-		case k of
-			1:gamelvl1(10,9,9,9,2,1,1,1);
-			2:gamelvl1(9,10,9,9,1,2,1,1);
-			3:gamelvl1(9,9,10,9,1,1,2,1);
-			4:gamelvl1(9,9,9,10,1,1,1,2)
-		End;
-		c:=readkey;
-
-		case ord(c) of
-			80: k:=k+1;
-			72: k:=k-1
-		End;
-
-		case k of
-			5:k:=1;
-			0:k:=4
-		End;
-
-	Until (ord(c)=13)or(ord(c)=32);
-
-	case k of
-	1: ngames:=5;
-	2: ngames:=10;
-	3: ngames:=25;
-	4: ngames:=50
-	End;
-	the_game;
-	cleardevice
-End;
-
- procedure gamemenu;
+function Choose(var m: TMenu): Integer;
+{ pick an option with the arrow keys and Enter or Space; Esc gives 0 }
+var
+  k: Integer;
+  ch, prevKey, nextKey: Char;
+  Ext: Boolean;
 begin
-	hidegrcursor;
-	cleardevice;
-	tronimage;
-	cleardevice;
-	repeat
-	k:=1;
-	Repeat
-		case k of
-			1:gamemenu1(10,9,9,9,2,1,1,1);
-			2:gamemenu1(9,10,9,9,1,2,1,1);
-			3:gamemenu1(9,9,10,9,1,1,2,1);
-			4:gamemenu1(9,9,9,10,1,1,1,2)
-		End;
-		c:=readkey;
-
-		case ord(c) of
-			77: k:=k+1;
-			75: k:=k-1
-		End;
-
-		case k of
-			5:k:=1;
-			0:k:=4
-		End;
-
-	Until (ord(c)=13)or(ord(c)=32);
-	case k of
-	1:
-	begin
-	_1p:=true;
-	gamelvl
-	end;
-	2:
-	begin
-	_1p:=false;
-	gamelvl
-	end;
-	3: rules
-	End;
-	until k=4;
-	cleardevice;
-end;
-{======Tron======}
-
-{======khndir======}
-
-Procedure err(s:string); {tveri pashtpanutyun *skali tpum*}
-Begin
-	setcolor(red);
-	outtextxy(divx-length(s)*4,450,s);
-	delay(200);
-
-	setcolor(0);
-	outtextxy(divx-length(s)*4,450,s);
-	setcolor(12)
-End;
-
-{kndirs}
-
-procedure dub(z1:ash;n1:byte;a:real; var q1: byte);
-var j1:byte;
-begin
-	q1:=0;
-	for j1:=1 to n1 do
-			if a=z1[j1] then 
-					q1:=q1+1;
+  if m.Vertical then
+  begin
+    prevKey := ScanUp;
+    nextKey := ScanDown
+  end
+  else
+  begin
+    prevKey := ScanLeft;
+    nextKey := ScanRight
+  end;
+  k := 1;
+  repeat
+    DrawMenu(m, k);
+    GetKey(ch, Ext);
+    if Ext and (ch = nextKey) then
+      k := k mod m.Count + 1
+    else if Ext and (ch = prevKey) then
+      k := (k + m.Count - 2) mod m.Count + 1
+  until not Ext and ((ch = KeyEnter) or (ch = KeySpace) or (ch = KeyEsc));
+  if ch = KeyEsc then
+    Choose := 0
+  else
+    Choose := k
 end;
 
-procedure max(y2:vec;m2:byte; var mx:real);
-var i2:byte;
+procedure BuildTronMenu(var m: TMenu);
 begin
-	mx:=y2[1];
-	for i2:=2 to m2 do
-			if mx<=y2[i2] then
-			mx:=y2[i2];
+  m.Count := 4;
+  m.TextSize := 1;
+  m.Vertical := False;
+  SetOption(m.Items[1], 80, divy, 180, divy + 50, 90, divy + 20, '1 ’≠’°’≤’°÷Å’∏’≤');
+  SetOption(m.Items[2], 205, divy, 305, divy + 50, 210, divy + 20, '2 ’≠’°’≤’°÷Å’∏’≤');
+  SetOption(m.Items[3], 330, divy, 433, divy + 50, 340, divy + 20, '’ä’°’µ’¥’°’∂’∂’•÷Ä');
+  SetOption(m.Items[4], 455, divy, 555, divy + 50, 470, divy + 20, '‘µ’¨÷Ñ')
 end;
 
-procedure eraser(x1,y1,x2,y3,col:integer); {x1,y1- line-i 1 coos; x2-verj x dirq, y3 line-i erk.}
-var i:integer;
+procedure BuildRoundsMenu(var m: TMenu; x: Integer);
+{ the number of rounds, as a column under the chosen mode at x }
 begin
-	setcolor (col);
-	for i:=x1 to x2 do
-	begin
-		line(i,y1,i,y1+y3);
-		delay(3)
-	end
+  m.Count := 4;
+  m.TextSize := 1;
+  m.Vertical := True;
+  SetOption(m.Items[1], x, divy + 62, x + 80, divy + 92, x + 5, divy + 77, '5  ’≠’°’≤');
+  SetOption(m.Items[2], x, divy + 102, x + 80, divy + 132, x + 5, divy + 117, '10 ’≠’°’≤');
+  SetOption(m.Items[3], x, divy + 142, x + 80, divy + 172, x + 5, divy + 157, '25 ’≠’°’≤');
+  SetOption(m.Items[4], x, divy + 182, x + 80, divy + 212, x + 5, divy + 197, '50 ’≠’°’≤')
 end;
 
-Procedure answer; {khndri lutsum}
-var xmat:mat; yvec:vec; z:ash; {khndri pop.}
-	smat: array [1..5,1..5] of string;
-    j,l,m,n,q:byte;
-	mets,m1,n1:real;
-	f:text;
-
-Var txt,txt1:string;
-	dot:boolean;
-	i,k:Integer;
-	o,p:string;
-Begin
-	hidegrcursor;
-	cleardevice;
-	txt:='';
-
-setcolor(red);
-s:='ßØÛÌ˜ÅÖÔâ˜ ÌØ£âÔï ˜Å´Åùè 2-ïÒ 5 ßïÂÅùÅ©˜ØÛß`';
-outtextxy(divx-length(s)*4-16,25,s);
-	setcolor(9);
-	outtextxy(divx+length(s)*4,25,'_');
-	repeat
-   	c:=readkey;
-		setcolor(0);
-		outtextxy(divx+length(s)*4,25,'_');
-if (ord(c)>=48)and(ord(c)<=57)and(txt='') then
-	begin
-	val(c,m,k);
-	if (m>=2)and(m<=5) then
-		begin
-		txt:=c;
-		setcolor(9);
-		outtextxy(divx+length(s)*4,25,txt)
-		end
-	end
-else if ord(c)=8 then
-	begin
-	setcolor(0);
-	outtextxy(divx+length(s)*4,25,txt);
-	txt:=''
-	end
-	else if ord(c)=13 then
-	If txt='' then
-	Begin
-		err('ÖÔâ˜ ëïÎ');
-		c:=#0
-	End
-until ord(c)=13;
-
-txt:='';
-
-setcolor(red);
-s:='ßØÛÌ˜ÅÖÔâ˜ È©ØÛ´âÔï ˜Å´Åùè 2-ïÒ 5 ßïÂÅùÅ©˜ØÛß`';
-outtextxy(divx-length(s)*4-16,40,s);
-	setcolor(9);
-	outtextxy(divx+length(s)*4,40,'_');
-	repeat
-   	c:=readkey;
-		setcolor(0);
-		outtextxy(divx+length(s)*4,40,'_');
- if (ord(c)>=48)and(ord(c)<=57)and(txt='') then
-	begin
-	val(c,n,k);
-	if (n>=2)and(n<=5) then
-		begin
-		txt:=c;
-		setcolor(9);
-		outtextxy(divx+length(s)*4,40,txt)
-		end
-	end
-else if ord(c)=8 then
-	begin
-	setcolor(0);
-	outtextxy(divx+length(s)*4,40,txt);
-	txt:=''
-	end
-	else if ord(c)=13 then
-	If txt='' then
-	Begin
-		err('ÖÔâ˜ ëïÎ');
-		c:=#0
-	End
-until ord(c)=13;
-
-eraser(divx-length(s)*4-16,25,divx+length(s)*4+16,40,0);
-str(m,o);
-str(n,p);
-setcolor(red);
-s:='óÔÅÒÔâ˜ '+o+'x'+p+' ·ÅıÅ´ï ßÅÌÔïÒè';
-settextstyle(0,0,2);
-outtextxy(divx-length(s)*8,25,s);
-
-setcolor(2);
-setlinestyle(0,0,3);
-rectangle(divx-n*50-2,divy-m*25-50-2,divx+n*50+2,divy+m*25-50+2);
-setfillstyle(1,14);
-bar(divx-n*50,divy-m*25-50,divx+n*50,divy+m*25-50);
-
-setlinestyle(0,0,1);
-setcolor(12);
-for i:=1 to m-1 do
-line(divx-n*50,divy-m*25-50+i*50,divx+n*50,divy-m*25-50+i*50);
-
-for i:=1 to n-1 do
-line(divx-n*50+i*100,divy-m*25-50,divx-n*50+i*100,divy+m*25-50);
-
-
-for i:=0 to m-1 do
-for j:=0 to n-1 do
+procedure BuildYesNoMenu(var m: TMenu);
 begin
-k:=0;
-txt:='';
-dot:=false;
-
-Repeat
-    settextstyle(0,0,1);
-		setcolor(6);
-		outtextxy(divx-n*50+j*100+10+k*8, divy-m*25-50+i*50+20,'_');
-		c:=readkey;
-		setcolor(14);
-		outtextxy(divx-n*50+j*100+10+k*8, divy-m*25-50+i*50+20,'_');
-
-		If (ord(c)=45)and(txt<>'') then
-			err('ßï´ØÛÈï ´≠Å´è á´ØÛß â´ ëÎï ÈùãÉØÛß ;)')
-		Else If (txt='')and(c='.') then
-			err('™Åô˜Å´ ùâÌï ´≠Å´ á´âóè, ëïÎ ÖÔâ˜')
-		Else If (txt='-')and(c='.') then
-			err('ßï´ØÛÈ ´≠Å´ïÒ üâÌØ ÖÔâ˜ ëïÎ, Å©ó Ø· ùâÌ...')
-		Else If (ord(c)=46)and(dot) then
-			err('ùÔù´Åùï ßï áÔâ˜ ùâÌï ´≠Å´')
-		Else If (txt='0')and(ord(c)<>46)and(ord(c)<>8) then
-			err('ãÔØ©ïÒ üâÌØ ·ßØÁÅ´Å˜ á´âó ùâÌï ´≠Å´è')
-		Else If ((ord(c)>57)or(ord(c)<48))and((ord(c)<>27)and(ord(c)<>13)and(ord(c)<>8)and(ord(c)<>45)and(ord(c)<>46)) then
-			err('ëïÎ, ÅÈâÒï´˜ ëï˝Î ÖÔâ˜')
-		Else If (ord(c)=8)and(k<>0) then
-		Begin
-			k:=k-1;
-			If(ord(txt[length(txt)])=46) then dot:=false;
-			setcolor(14);
-			outtextxy(divx-n*50+j*100+10+k*8, divy-m*25-50+i*50+20,txt[length(txt)]);
-			txt:=copy(txt,0,length(txt)-1);
-			setcolor(6);
-			outtextxy(divx-n*50+j*100+10,divy-m*25-50+i*50+20,txt)
-		End
-		Else If (length(txt)>9)then
-			err('êÎÅ´≠Å´´âÔï ˜Å´Åùè ·„â˝Ì˜ ç ÖâÔÅãÅ´Òï 9-è')
-		Else If (ord(c)>47)and(ord(c)<58)or(ord(c)=45)or(ord(c)=46) then
-		Begin
-			If ord(c)=46 then
-				dot:=true;
-			txt:=txt+c;
-			setcolor(6);
-			outtextxy(divx-n*50+j*100+10+k*8, divy-m*25-50+i*50+20, c);
-			k:=k+1
-		End
-		Else If ord(c)=13 then
-
-			If (txt='')or(txt='-') then
-			Begin
-				err('ô´áÔØ˝Ûß â´˜ ÅÎÅÔÌâó ëÎï ßØÛÌ˜ÅÖÔØÛß, áØÛ áâÁ ·â˜ ÎâÔÂÅÒÔâó');
-				c:=#0
-			End
-			Else If (pos('.',txt)<>0)and(copy(txt,length(txt),1)='0') then
-			Begin
-				err('ô´áÔØ˝Ûß â´˜ ùØÌØÔÅ©Åï´ ëÎïÒ üâÌØ ·ÖÔâó ÅÎâó´ØÔá ãÔØ´âÔ');
-				c:=#0
-			End
-			Else If (copy(txt,length(txt),1)='.') then
-			Begin
-				err('ô´áÔØ˝Ûß â´˜ ßØÛÌ˜ÅÖÔâ˜ õï≠Ì ëïÎ');
-				c:=#0
-			End
-	Until (ord(c)=13)or(ord(c)=27);
-		smat[i+1,j+1]:=txt;
-end;
-  settextstyle(0,0,1);
-  setcolor(4);
-  s:='Ëâ£ßâ˜ Space ÌÎ©Åó´âÔè ˚Å©óØÛß Ì„âóØÛ üÅßÅÔ';
-  outtextxy(divx-length(s)*4,getmaxy-60,s);
-  repeat c:=readkey until ord(c)=32;
-  setcolor(0);
-  outtextxy(divx-length(s)*4,getmaxy-60,s);
-
-	assign(f,'..\547.txt');
-	rewrite(f);
-	writeln(f,o+' '+p);
-	for i:=1 to m do
-	begin
-		txt1:='';
-		for j:=1 to n do
-		begin
-		eraser(divx-n*50+(j-1)*100+10, divy-m*25-50+(i-1)*50+20,divx-n*50+(j-1)*100+90,16,14);
-		str(xmat[i,j],txt);
-		txt1:=txt1+smat[i,j]{copy(txt,0,9)}+' ' {copy(txt,0,9)};
-		end;
-		writeln(f,txt1)
-	end;
-	close(f);
-
-    Reset(f);
-    Readln(f,txt);
-	val(copy(txt,1,pos(' ',txt)-1),m,k);
-	delete(txt,1,pos(' ',txt));
-	val(copy(txt,1,length(txt)),n,k);
-
-	setcolor(6);
-	settextstyle(0,0,1);
-  for i:=1 to m do
-	begin
-		readln(f,txt);
-		for j:=1 to n do
-		begin
-			val(copy(txt,1,pos(' ',txt)-1),xmat[i,j],k);
-			outtextxy(divx-n*50+(j-1)*100+10, divy-m*25-50+(i-1)*50+20,copy(txt,1,pos(' ',txt)-1));
-			delete(txt,1,pos(' ',txt));
-			str(xmat[i,j],s);
-			delay(200);
-		end
-	end;
-	for i:=1 to m do 
-	begin
-		yvec[i]:=0;
-		for j:=1 to n do
-			z[j]:=xmat[i,j];
-		for j:=1 to n do
-		begin
-			dub(z,n,z[j],q);
-			yvec[i]:=q+yvec[i]
-		end;
-	end;
-	max(yvec,m,mets);
-	for i:=m downto 1 do
-		if mets=yvec[i] then
-		begin
-			l:=i;
-			break
-		end;
-	if l<>0 then str(l,s) else s:='Å©á„ïÈï ÌØ£ ·ùÅ';
-	setcolor(2);
-  settextstyle(0,0,2);
-
-	s:='‚ÅÌÅÈôÅ´` '+s;
-	outtextxy(divx-length(s)*8,divy+120,s);
-
-  setcolor(4);
-  settextstyle(0,0,1);
-  s:='Ëâ£ßâ˜ Space áØÛÔÈ ÖÅóØÛ üÅßÅÔ';
-  outtextxy(divx-length(s)*4,getmaxy-60,s);
-  repeat c:=readkey until ord(c)=32;
-	cleardevice;
-	setfillstyle(1,15);
-	bar(0,0,getmaxx,getmaxy-37)
- End;
-
-
-{======khndir======}
-
-Procedure errscr; {Blue Screen :]}
-Begin
-	hidegrcursor;
-	cleardevice;
-	setbkcolor(1);
-	setcolor(15);
-	settextstyle(0,0,1);
-	outtextxy(0,10,'A problem has been detected and windows has been shut down to prevent damage');
-	outtextxy(0,25,'to your computer.');
-	outtextxy(0,50,'DRIVER_IRQL_NOT_LESS_OR_EQUAL');
-	outtextxy(0,75,'If this is the first time you'+#39+'v seen this stop error screen,');
-	outtextxy(0,90,'restart your computer, If this screen appears again, follow');
-	outtextxy(0,105,'these steps:');
-	outtextxy(0,130,'Check to make sure any new hardware or software is properly installed.');
-	outtextxy(0,145,'If this is a new installation, ask your hardware or software manufacturer');
-	outtextxy(0,160,'for any windows updates you might need.');
-	outtextxy(0,185,'If problems continue, disable or remove any newly installed hardware');
-	outtextxy(0,200,'or software. Disable BIOS memory options such as caching or shadowing.');
-	outtextxy(0,215,'If you need to use Safe Mode to remove or disable components, restart');
-	outtextxy(0,230,'your computer, press F8 to select Advanced Startup Options, and then');
-	outtextxy(0,245,'select Safe Mode.');
-	outtextxy(0,270,'Technical information:');
-	outtextxy(0,285,'*** Stop: 0x000000D1 (0x00000000C,0x00000002,0x00000000,0xF86B5A89)');
-	outtextxy(0,335,'***       gv3.sys - Address F86B5A89 base at F86B50000, DateStamp 3dd991eb');
-	outtextxy(0,360,'Beginning dump of physical memory');
-	outtextxy(0,375,'Physical memory dump complete.');
-	outtextxy(0,390,'Contact your system administrator or technical support group for further');
-	outtextxy(0,405,'assistance.');
- readkey;
- readkey;
- readkey;
-	setbkcolor(0);
-	cleardevice;
-	settextstyle(0,0,10);
-
-		for i:=15 downto 0 do
-	Begin
-		setcolor(i);
-		outtextxy(divx-60,divy-40,';');
-		outtextxy(divx-20,divy-35,']');
-		delay(200)
-	End;
-	cleardevice;
-	setfillstyle(1,15);
-	bar(0,0,getmaxx,getmaxy-37)
-End;
-
-procedure time;
-begin
-	settextstyle(0,0,1);
-	gettime(hh,mi,se,ms);
-	str(hh,hhs);
-	str(mi,mis);
-	str(se,ses);
-	if	length(hhs)=1 then hhs:='0'+hhs;
-	if	hh=24 then hhs:='00';
-	if	length(mis)=1 then mis:='0'+mis;
-	if	length(ses)=1 then ses:='0'+ses;
-	if (ses<>s0)or(mis<>m0)or(hhs<>h0) then
-	begin
-		setcolor(8);
-		outtextxy(getmaxx-70,getmaxy-20,h0+':'+m0+':'+s0);
-		setcolor(15);
-		outtextxy(getmaxx-70,getmaxy-20,hhs+':'+mis+':'+ses);
-		s0:=ses;
-		m0:=mis;
-		h0:=hhs;
-	end;
+  m.Count := 2;
+  m.TextSize := 2;
+  m.Vertical := False;
+  SetOption(m.Items[1], 205, divy, 305, divy + 50, 230, divy + 20, '‘±’µ’∏');
+  SetOption(m.Items[2], 330, divy, 433, divy + 50, 360, divy + 20, '’à’π')
 end;
 
-procedure wall;
+{ ===== Tron ===== }
+
+procedure DrawLogo;
+{ trace the TRON logo; a key press skips the rest }
+var
+  s, i, x, y: Integer;
 begin
-questpad:=false;
-quest:=false;
-start:=false;
-setfillstyle(1,15);
-bar(0,0,getmaxx,getmaxy-37);
-settextstyle(0,0,9);
-setcolor(2);
-outtextxy(divx-225,divy-50,'¶ë-240');
+  SetFillStyle(SolidFill, Green);
+  for s := 1 to 10 do
+  begin
+    x := LogoStrokes[s].X;
+    y := LogoStrokes[s].Y;
+    for i := 0 to Length(LogoStrokes[s].Path) do
+    begin
+      if i > 0 then
+        case LogoStrokes[s].Path[i] of
+          '1': begin x := x - 1; y := y + 1 end;
+          '2': y := y + 1;
+          '3': begin x := x + 1; y := y + 1 end;
+          '4': x := x - 1;
+          '6': x := x + 1;
+          '7': begin x := x - 1; y := y - 1 end;
+          '8': y := y - 1;
+          '9': begin x := x + 1; y := y - 1 end
+        end;
+      if not KeyPressed then
+      begin
+        Bar(divx + x * 6, divy + y * 6, divx + x * 6 + 5, divy + y * 6 + 5);
+        Delay(10)
+      end
+    end
+  end
 end;
 
-Begin
-	initgraph(m,n,''); {grafikayi initsializatsum}
-	initgraphmouse; {mkniki initsializatsum}
+procedure ShowRules;
+{ every control line leaves room at its start for the colour name drawn over it }
+var
+  s: string;
+begin
+  ClearDevice;
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetColor(Green);
+  OutCentered(100, '‘≤’∏’æ’°’∂’§’°’Ø’∏÷Ç’©’µ’∏÷Ç’∂');
+  SetColor(LightGray);
+  OutCentered(115, '‘Ω’°’≤’´ ’∂’∫’°’ø’°’Ø’∂ ’ß ’§’∏÷Ç÷Ä’Ω ’¢’•÷Ä’•’¨ ’∞’°’Ø’°’º’°’Ø’∏÷Ä’§’´’∂ ’Ø’°’º’°’æ’°÷Ä’∏÷Ç’¥’´÷Å:');
+  OutCentered(130, '‘Ω’°’≤’°÷Å’∏’≤’® ’∞’°’¥’°÷Ä’æ’∏÷Ç’¥ ’ß ’∞’°’≤’©’∏’≤, ’•’©’• ’∞’°’Ø’°’º’°’Ø’∏÷Ä’§’® ’¢’°’≠’æ’•’¨ ’ß ’´’∂’π-’∏÷Ä ’≠’∏’π’®’∂’§’∏’ø’´:');
+  SetColor(Brown);
+  OutCentered(180, '‘ø’°’º’°’æ’°÷Ä’∏÷Ç’¥');
+  s := '        ’≠’°’≤’°÷Å’∏’≤` ’æ’•÷Ä’•÷Ç` ^, ’∂’•÷Ä÷Ñ’•÷Ç` v, ’°’ª` >, ’±’°’≠` <:';
+  SetColor(LightGray);
+  OutCentered(195, s);
+  SetColor(Cyan);
+  OutTextXY(divx - Length(s) * 4, 195, '‘ø’°’∫’∏÷Ç’µ’ø');
+  s := '      ’≠’°’≤’°÷Å’∏’≤` ’æ’•÷Ä’•÷Ç` W, ’∂’•÷Ä÷Ñ’•÷Ç` S, ’°’ª` D, ’±’°’≠` A:';
+  SetColor(LightGray);
+  OutCentered(210, s);
+  SetColor(Yellow);
+  OutTextXY(divx - Length(s) * 4, 210, '‘¥’•’≤’´’∂');
+  SetColor(LightBlue);
+  OutCentered(260, '’å’•’™’´’¥’∂’•÷Ä');
+  s := '‘Ω’°’≤’°÷Å’∏’≤’∂ ’®’∂’§’§’•’¥ ’∞’°’¥’°’Ø’°÷Ä’£’π’´: ‘Ω’°’≤’°÷Å’∏’≤’´ ’£’∏÷Ç’µ’∂’®`        , ’∞’°’¥’°’Ø’°÷Ä’£’π’´’∂’®`      :';
+  SetColor(LightGray);
+  OutCentered(275, s);
+  SetColor(Cyan);
+  OutTextXY(divx - Length(s) * 4 + 360, 275, '’Ø’°’∫’∏÷Ç’µ’ø');
+  SetColor(Yellow);
+  OutTextXY(divx - Length(s) * 4 + 544, 275, '’§’•’≤’´’∂');
+  s := '‘Ω’°’≤’°÷Å’∏’≤’∂ ’®’∂’§’§’•’¥ ’≠’°’≤’°÷Å’∏’≤’´: ‘Ω’°’≤’°÷Å’∏’≤’∂’•÷Ä’´ ’£’∏÷Ç’µ’∂’•÷Ä’®`       ’•÷Ç        :';
+  SetColor(LightGray);
+  OutCentered(290, s);
+  SetColor(Yellow);
+  OutTextXY(divx - Length(s) * 4 + 385, 290, '’§’•’≤’´’∂');
+  SetColor(Cyan);
+  OutTextXY(divx - Length(s) * 4 + 456, 290, '’Ø’°’∫’∏÷Ç’µ’ø');
+  WaitKey;
+  ClearDevice
+end;
 
-	divx:=getmaxx div 2;
-	divy:=getmaxy div 2;
-setgrcursor(divx,divy-60);
-	wall;
-	Repeat
-		showgrcursor;
-		setfillstyle(1,8);
-		setlinestyle(0,0,1);
-		bar(0,getmaxy-37,getmaxx,getmaxy);
-		setfillstyle(1,3);
-		setcolor(0);
-		fillellipse(26,getmaxy-18,18,18);
-		setfillstyle(1,8);
-		bar(16,getmaxy-28,36,getmaxy-8);
-		setfillstyle(1,4);
+procedure StartRound;
+begin
+  Npos1 := DirLeft;
+  Npos2 := DirRight;
+  Xpos1 := GetMaxX - 100;
+  Ypos1 := 240;
+  Xpos2 := 101;
+  Ypos2 := 240;
+  RoundOver := False
+end;
 
-		bar(17,getmaxy-27,25,getmaxy-19);
-		setfillstyle(1,1);
-		bar(17,getmaxy-17,25,getmaxy-9);
-		setfillstyle(1,2);
-		bar(27,getmaxy-27,35,getmaxy-19);
-		setfillstyle(1,12);
-		bar(27,getmaxy-17,35,getmaxy-9);
-		k:=0;
-		repeat
-			time;
-			if readgrcursor(X,Y)=1 then
-				If (X>=8)and(X<=44)and(Y<=getmaxy)and(Y>=getmaxy-36)and(start=false) then
-					k:=1 {stugum start buttoni coords-i & krknoghutyan}
-				Else If ((X<8)or(X>44)or(Y>getmaxy)or(Y<getmaxy-36)or(start))
-						and	((start)and((X<0)or(X>153)or(Y>getmaxy-41)or(Y<getmaxy-253)))
-						and (not((X>=159)and(X<=304)and(Y>=getmaxy-175)and(Y<=getmaxy-159)and(quest)))
-						and (not((X>=159)and(X<=304)and(Y>=getmaxy-154)and(Y<=getmaxy-138)and(quest)))
-						or (X>=getmaxx-85)and(X<=getmaxx-50)and(Y>=45)and(Y<=60)and(questpad) then
-					k:=2
-				else if (X>=10)and(X<=150)and(Y>=getmaxy-243)and(Y<=getmaxy-211)and(start) then
-					k:=-1
-				else if (X>=10)and(X<=150)and(Y>=getmaxy-206)and(Y<=getmaxy-174)and(start) then
-					k:=-2
-				else if (X>=10)and(X<=150)and(Y>=getmaxy-161)and(Y<=getmaxy-145)and(start) then
-					k:=-3
-				else if (X>=159)and(X<=304)and(Y>=getmaxy-175)and(Y<=getmaxy-159)and(quest) then
-					k:=-4
-				else if (X>=159)and(X<=304)and(Y>=getmaxy-154)and(Y<=getmaxy-138)and(quest) then
-					k:=-5
-				else if (X>=10)and(X<=150)and(Y>=getmaxy-80)and(Y<=getmaxy-48)and(start) then
-					k:=-6
-				else
-					k:=0
+procedure ReadControls;
+{ steer cyan with the arrows; yellow with WASD, or let the computer steer it }
+var
+  ch: Char;
+  Ext: Boolean;
+  steps, aheadX, aheadY, i: Integer;
+begin
+  ch := #0;
+  Ext := False;
+  if KeyPressed then
+    GetKey(ch, Ext);
+  if Ext then
+    case ch of
+      ScanLeft: if Npos1 <> DirRight then Npos1 := DirLeft;
+      ScanUp: if Npos1 <> DirDown then Npos1 := DirUp;
+      ScanRight: if Npos1 <> DirLeft then Npos1 := DirRight;
+      ScanDown: if Npos1 <> DirUp then Npos1 := DirDown
+    end;
+  if OnePlayer then
+  begin
+    { look up to 40 moves ahead; the nearer something is, the likelier a random turn }
+    steps := 0;
+    aheadX := Xpos2;
+    aheadY := Ypos2;
+    repeat
+      steps := steps + 1;
+      case Npos2 of
+        DirLeft: aheadX := aheadX - 2;
+        DirUp: aheadY := aheadY - 2;
+        DirRight: aheadX := aheadX + 2;
+        DirDown: aheadY := aheadY + 2
+      end
+    until (GetPixel(aheadX, aheadY) <> 0) or (steps = 40);
+    if Random(steps) = 0 then
+      case Random(4) + 1 of
+        DirLeft: if (Npos2 <> DirLeft) and (Npos2 <> DirRight) then Npos2 := DirLeft;
+        DirUp: if (Npos2 <> DirUp) and (Npos2 <> DirDown) then Npos2 := DirUp;
+        DirRight: if (Npos2 <> DirRight) and (Npos2 <> DirLeft) then Npos2 := DirRight;
+        DirDown: if (Npos2 <> DirDown) and (Npos2 <> DirUp) then Npos2 := DirDown
+      end;
+    { something right ahead: turn to one side, and if that is blocked too, to the other }
+    for i := 1 to 2 do
+    begin
+      case Npos2 of
+        DirLeft: if GetPixel(Xpos2 - 2, Ypos2) <> 0 then Npos2 := DirDown;
+        DirUp: if GetPixel(Xpos2, Ypos2 - 2) <> 0 then Npos2 := DirRight;
+        DirRight: if GetPixel(Xpos2 + 2, Ypos2) <> 0 then Npos2 := DirUp;
+        DirDown: if GetPixel(Xpos2, Ypos2 + 2) <> 0 then Npos2 := DirLeft
+      end;
+      case Npos2 of
+        DirLeft: if GetPixel(Xpos2 - 2, Ypos2) <> 0 then Npos2 := DirUp;
+        DirUp: if GetPixel(Xpos2, Ypos2 - 2) <> 0 then Npos2 := DirLeft;
+        DirRight: if GetPixel(Xpos2 + 2, Ypos2) <> 0 then Npos2 := DirDown;
+        DirDown: if GetPixel(Xpos2, Ypos2 + 2) <> 0 then Npos2 := DirRight
+      end
+    end
+  end
+  else if not Ext then
+    case UpCase(ch) of
+      'A': if Npos2 <> DirRight then Npos2 := DirLeft;
+      'W': if Npos2 <> DirDown then Npos2 := DirUp;
+      'D': if Npos2 <> DirLeft then Npos2 := DirRight;
+      'S': if Npos2 <> DirUp then Npos2 := DirDown
+    end;
+  if not Ext and (ch = KeyEsc) then
+  begin
+    RoundOver := True;
+    Quit := True
+  end
+end;
 
-		Until k<>0;
+procedure Advance(var x, y: Integer; dir: Integer);
+begin
+  case dir of
+    DirLeft: x := x - 2;
+    DirUp: y := y - 2;
+    DirRight: x := x + 2;
+    DirDown: y := y + 2
+  end
+end;
 
-		case k of
-			1:
-			begin
-				start:=true;
-				setfillstyle(1,8);
-				bar(0,getmaxy-253,153,getmaxy-39);
-				setfillstyle(1,15);
-				bar(3,getmaxy-250,150,getmaxy-41);
+procedure DrawHead(x, y: Integer; color: Word);
+begin
+  SetFillStyle(SolidFill, color);
+  Bar(x, y, x + 1, y + 1)
+end;
 
-				setfillstyle(1,0);
-				bar(10,getmaxy-243,42,getmaxy-211);
-				setfillstyle(9,red);
-				bar(15,getmaxy-240,40,getmaxy-215);
-				setcolor(yellow);
-				settextstyle(0,0,2);
-				outtextxy(12,getmaxy-233,'TP');
-				setfillstyle(1,0);
+procedure MoveCycles;
+{ move both cycles one step at the same time; a cycle crashes when it lands on anything but black.
+  When both crash, or they meet on the same spot, nobody wins the round. }
+var
+  crash1, crash2, meet: Boolean;
+begin
+  Advance(Xpos1, Ypos1, Npos1);
+  Advance(Xpos2, Ypos2, Npos2);
+  meet := (Xpos1 = Xpos2) and (Ypos1 = Ypos2);
+  crash1 := meet or (GetPixel(Xpos1, Ypos1) <> 0);
+  crash2 := meet or (GetPixel(Xpos2, Ypos2) <> 0);
+  if crash1 or crash2 then
+  begin
+    RoundOver := True;
+    if crash1 and crash2 then
+      Winner := 0
+    else if crash1 then
+      Winner := 2
+    else
+      Winner := 1
+  end;
+  DrawHead(Xpos1, Ypos1, Cyan);
+  DrawHead(Xpos2, Ypos2, Yellow);
+  Delay(StepDelay)
+end;
 
-				setcolor(1);
-				setlinestyle(0,0,3);
-				setfillstyle(1,0);
-				fillellipse(26,getmaxy-190,16,16);
-				setcolor(15);
-				settextstyle(0,0,2);
-				outtextxy(20,getmaxy-195,'T');
+procedure DrawScore(yellowScore, blueScore: Integer; visible: Boolean);
+{ "‘¥’•’≤’´’∂  y:b  ‘ø’°’∫’∏÷Ç’µ’ø" across the top; visible = False paints it out in black }
+var
+  s, a, b: string;
+begin
+  Str(yellowScore, a);
+  Str(blueScore, b);
+  s := '        ' + a + ':' + b + '          ';
+  SetTextStyle(DefaultFont, HorizDir, 2);
+  if visible then
+    SetColor(Green)
+  else
+    SetColor(Black);
+  OutTextXY(divx - Length(s) * 8, 2, s);
+  if visible then
+    SetColor(Yellow);
+  OutTextXY(divx - Length(s) * 8, 2, '‘¥’•’≤’´’∂');
+  if visible then
+    SetColor(Cyan);
+  OutTextXY(divx + Length(s) * 8 - 112, 2, '‘ø’°’∫’∏÷Ç’µ’ø')
+end;
 
-				bar(10,getmaxy-161,42,getmaxy-145);
-				settextstyle(0,0,2);
-				setcolor(0);
-				outtextxy(12,getmaxy-165,'?');
-				setcolor(yellow);
-				outtextxy(14,getmaxy-163,'?');
-				setcolor(0);
-				outtextxy(28,getmaxy-165,'!');
-				setcolor(4);
-				outtextxy(30,getmaxy-163,'!');
+procedure PlayMatch(rounds: Integer);
+{ rounds until one colour has won the given number of them, then offer a new match }
+var
+  blueScore, yellowScore: Integer;
+  again: Boolean;
+  yesNo: TMenu;
+begin
+  repeat
+    blueScore := 0;
+    yellowScore := 0;
+    Quit := False;
+    ClearDevice;
+    while (blueScore < rounds) and (yellowScore < rounds) and not Quit do
+    begin
+      StartRound;
+      SetColor(LightBlue);
+      SetLineStyle(SolidLn, 0, ThickWidth);
+      Rectangle(0, 20, GetMaxX, GetMaxY);
+      DrawScore(yellowScore, blueScore, True);
+      Winner := 0;
+      while not RoundOver do
+      begin
+        ReadControls;
+        MoveCycles
+      end;
+      if not Quit then
+      begin
+        DrawScore(yellowScore, blueScore, False);
+        if Winner = 1 then
+          blueScore := blueScore + 1
+        else if Winner = 2 then
+          yellowScore := yellowScore + 1;
+        DrawScore(yellowScore, blueScore, True);
+        WaitKey
+      end;
+      ClearDevice
+    end;
+    again := False;
+    if not Quit then
+    begin
+      SetTextStyle(DefaultFont, HorizDir, 4);
+      if blueScore > yellowScore then
+      begin
+        SetColor(LightBlue);
+        OutTextXY(divx - 250, divy - 20, '‘ø’°’∫’∏÷Ç’µ’ø’® ’∞’°’≤’©’•÷Å!')
+      end
+      else if blueScore < yellowScore then
+      begin
+        SetColor(Yellow);
+        OutTextXY(divx - 225, divy - 20, '‘¥’•’≤’´’∂’® ’∞’°’≤’©’•÷Å!')
+      end;
+      WaitKey;
+      ClearDevice;
+      SetTextStyle(DefaultFont, HorizDir, 3);
+      SetColor(Red);
+      OutTextXY(divx - 95, divy - 50, '’Ü’∏÷Ä ’≠’°’û’≤');
+      BuildYesNoMenu(yesNo);
+      again := Choose(yesNo) = 1;
+      ClearDevice
+    end
+  until not again;
+  ClearDevice
+end;
 
-				setcolor(0);
-				setlinestyle(0,0,1);
-				line(133,getmaxy-160,133,getmaxy-152);
-				line(134,getmaxy-159,137,getmaxy-156);
-				line(134,getmaxy-153,136,getmaxy-155);
+procedure TronMenu;
+{ the logo, then the Tron menu until Exit or Esc }
+var
+  modes, rounds: TMenu;
+  choice: Integer;
+  ch: Char;
+  Ext: Boolean;
+begin
+  HideGrCursor;
+  ClearDevice;
+  DrawLogo;
+  GetKey(ch, Ext);                   { takes the key that skipped the logo, or waits for one }
+  ClearDevice;
+  BuildTronMenu(modes);
+  repeat
+    choice := Choose(modes);
+    if (choice = 1) or (choice = 2) then
+    begin
+      OnePlayer := choice = 1;
+      DrawMenu(modes, 0);
+      if OnePlayer then
+        BuildRoundsMenu(rounds, 90)
+      else
+        BuildRoundsMenu(rounds, 215);
+      case Choose(rounds) of
+        1: PlayMatch(5);
+        2: PlayMatch(10);
+        3: PlayMatch(25);
+        4: PlayMatch(50)
+      end;
+      ClearDevice
+    end
+    else if choice = 3 then
+      ShowRules
+  until (choice = 4) or (choice = 0);
+  ClearDevice
+end;
 
-				setlinestyle(0,0,2);
-				setcolor(8);
-				line(3,getmaxy-90,150,getmaxy-90);
+{ ===== Problem 547 ===== }
 
-				setfillstyle(1,4);
-				bar(10,getmaxy-80,42,getmaxy-48);
-				setcolor(15);
-				setlinestyle(0,0,3);
-				fillellipse(27,getmaxy-64,12,12);
-				setlinestyle(0,0,3);
-				setcolor(15);
-				line(26,getmaxy-68,26,getmaxy-60);
+procedure FlashError(s: string);
+{ a short red hint under the matrix }
+begin
+  SetColor(Red);
+  OutCentered(450, s);
+  Delay(200);
+  SetColor(Black);
+  OutCentered(450, s)
+end;
 
+procedure FileError(s: string);
+{ why 547.TXT failed; waits for a key }
+begin
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetColor(Red);
+  OutCentered(GetMaxY - 60, s);
+  WaitKey
+end;
 
-						setcolor(0);
-				settextstyle(0,0,1);
-				outtextxy(50,getmaxy-230,'Turbo Pascal');
-				outtextxy(50,getmaxy-192,'Tron');
-				outtextxy(50,getmaxy-160,'ò´áïÔ 547');
-				{outtextxy(50,getmaxy-117,'ñØÛõØÛß');}
-				outtextxy(50,getmaxy-65,'àó˜');
-				delay(200)
-			end;
-			2: wall;
-			-1:
-			begin
-				errscr;
-        wall;
-				start:=false
-			end;
-			-2:
-			begin
-				gamemenu;
-        wall;
-				start:=false
-			end;
-			-3:
-			begin
-			quest:=true;
-			setcolor(8);
-			setlinestyle(0,0,1);
-			Rectangle(153,getmaxy-181,305,getmaxy-132);
+procedure Eraser(x1, y1, x2, h: Integer; color: Word);
+{ paint x1..x2 by y1..y1+h in color, one vertical line at a time }
+var
+  x: Integer;
+begin
+  SetColor(color);
+  for x := x1 to x2 do
+  begin
+    Line(x, y1, x, y1 + h);
+    Delay(3)
+  end
+end;
 
-			setfillstyle(1,15);
-			bar(154,getmaxy-180,304,getmaxy-133);
-			setfillstyle(1,9);
-			settextstyle(0,0,2);
-			bar(159,getmaxy-175,175,getmaxy-159);
-			setcolor(14);
-			outtextxy(161,getmaxy-174,'?');
-			bar(159,getmaxy-154,175,getmaxy-138);
-			setcolor(4);
-			outtextxy(161,getmaxy-153,'!');
+function CountEqual(var r: TRow; n: Integer; a: Real): Integer;
+{ subprogram 1 of the task: how many of the first n elements of r equal a }
+var
+  j, q: Integer;
+begin
+  q := 0;
+  for j := 1 to n do
+    if r[j] = a then
+      q := q + 1;
+  CountEqual := q
+end;
 
-				setcolor(0);
-				settextstyle(0,0,1);
-				outtextxy(181,getmaxy-170,'‚ÅüÅ´Â');
-				outtextxy(181,getmaxy-149,'ñØÛõØÛß');
-				end;
-			-4:
-				begin
-				wall;
-				questpad:=true;
-				setfillstyle(1,8);
-				bar(40,40,getmaxx-40,getmaxy-80);
-				setfillstyle(1,15);
-				bar(50,70,getmaxx-50,getmaxy-90);
-				setfillstyle(1,4);
-				bar(getmaxx-85,45,getmaxx-50,60);
-				settextstyle(0,0,1);
-				setcolor(15);
-				outtextxy(getmaxx-71,49,'x');
-				setgrcursor(20,20);
-				print(divx-100,100,4,2,'ò´áïÔ 547');
-				print(45,130,2,1,'‚ÅüÅ´Â`');
-				print(45,145,1,1,'ÏÔÎÅõ ç MxN ·ÅıÅ´ï ßÅÌÔïÒè: ÄÔÌÅõâó ßÅÌÔïÒï Å©´ ÎâÔÂï´ ÌØ£ï üÅßÅÔè,');
-				print(45,160,1,1,'ØÔè „ÅÔØÛ´ÅùØÛß ç ßâõÅÖØÛ©´ ˜Å´ÅùØÛë©ÅßÉ ïÔÅÔ üÅÎÅÈÅÔ ÌÅÔÔâÔ:');
-				print(45,225,2,1,'à´ëÅõÔÅÖÔâÔ`');
-				print(45,240,1,1,'1.ûÅ≠Îâó ÎâùÌØÔï ï´ üÅÎÅÈÅÔ ÌÅÔÔâÔï ˜Å´Åùè:');
-				print(45,255,1,1,'2.ûÅ≠Îâó ÎâùÌØÔï ÎâùÌØÔï ßâõÅÖØÛ©´ ÌÅÔÔè:');
-				end;
-			-5:
-			begin
-				answer;
-        wall;
-				start:=false
-			end
-		end;
-	until k=-6;
-Closegraph
-End.
+function MaxElement(var v: TCounts; n: Integer): Integer;
+{ subprogram 2 of the task: the largest of the first n elements of v }
+var
+  i, mx: Integer;
+begin
+  mx := v[1];
+  for i := 2 to n do
+    if v[i] > mx then
+      mx := v[i];
+  MaxElement := mx
+end;
+
+function ReadDimension(y: Integer; prompt: string): Integer;
+{ a number of rows or columns from 2 to 5, typed after prompt; 0 when Esc cancels }
+var
+  ch: Char;
+  Ext: Boolean;
+  typed: string[1];
+  x: Integer;
+begin
+  ReadDimension := 0;
+  x := divx + Length(prompt) * 4;
+  SetColor(Red);
+  OutTextXY(divx - Length(prompt) * 4 - 16, y, prompt);
+  SetColor(LightBlue);
+  OutTextXY(x, y, '_');
+  typed := '';
+  repeat
+    GetKey(ch, Ext);
+    if Ext then
+      ch := #0;
+    SetColor(Black);
+    OutTextXY(x, y, '_');
+    if ch = KeyEsc then
+      Exit
+    else if (ch >= '2') and (ch <= '5') and (typed = '') then
+    begin
+      typed := ch;
+      SetColor(LightBlue);
+      OutTextXY(x, y, typed)
+    end
+    else if ch = KeyBackspace then
+    begin
+      SetColor(Black);
+      OutTextXY(x, y, typed);
+      typed := ''
+    end
+    else if (ch = KeyEnter) and (typed = '') then
+    begin
+      FlashError('’£÷Ä’•÷Ñ ’©’´’æ');
+      ch := #0
+    end
+  until ch = KeyEnter;
+  ReadDimension := Ord(typed[1]) - Ord('0')
+end;
+
+function ReadCell(rows, cols, i, j: Integer; var txt: TNumberText): Boolean;
+{ the number in cell (i, j), counted from 0; False when Esc cancels }
+var
+  x, y, k, digits, t: Integer;
+  dot, Ext: Boolean;
+  ch: Char;
+begin
+  ReadCell := False;
+  x := divx - cols * 50 + j * 100 + 10;
+  y := divy - rows * 25 - 50 + i * 50 + 20;
+  k := 0;
+  txt := '';
+  dot := False;
+  repeat
+    SetTextStyle(DefaultFont, HorizDir, 1);
+    SetColor(Brown);
+    if k <= 10 then                  { a full cell has no room for the cursor before the grid line }
+      OutTextXY(x + k * 8, y, '_');
+    GetKey(ch, Ext);
+    if Ext then
+      ch := #0;
+    SetColor(Yellow);
+    if k <= 10 then
+      OutTextXY(x + k * 8, y, '_');
+    digits := 0;                     { the minus and the point do not count }
+    for t := 1 to Length(txt) do
+      if txt[t] in ['0'..'9'] then
+        digits := digits + 1;
+
+    if ch = KeyEsc then
+      Exit
+    else if ch = KeyEnter then
+    begin
+      if (txt = '') or (txt = '-') then
+      begin
+        FlashError('’≠’∂’§÷Ä’∏’õ÷Ç’¥ ’•’∂÷Ñ ’°’æ’°÷Ä’ø’•’¨ ’©’æ’´ ’¥’∏÷Ç’ø÷Ñ’°’£÷Ä’∏÷Ç’¥, ’§’∏÷Ç÷Ñ ’§’•’º ’π’•÷Ñ ’æ’•÷Ä’ª’°÷Å÷Ä’•’¨');
+        ch := #0
+      end
+      else if (Pos('.', txt) <> 0) and (txt[Length(txt)] = '0') then
+      begin
+        FlashError('’≠’∂’§÷Ä’∏’õ÷Ç’¥ ’•’∂÷Ñ ’Ø’∏’ø’∏÷Ä’°’Ø’°’µ’´’∂ ’©’æ’´÷Å ’∞’•’ø’∏ ’π’£÷Ä’•’¨ ’°’æ’•’¨’∏÷Ä’§ ’¶÷Ä’∏’∂’•÷Ä');
+        ch := #0
+      end
+      else if txt[Length(txt)] = '.' then
+      begin
+        FlashError('’≠’∂’§÷Ä’∏’õ÷Ç’¥ ’•’∂÷Ñ ’¥’∏÷Ç’ø÷Ñ’°’£÷Ä’•÷Ñ ’≥’´’∑’ø ’©’´’æ');
+        ch := #0
+      end
+    end
+    else if ch = KeyBackspace then
+    begin
+      if k <> 0 then
+      begin
+        k := k - 1;
+        if txt[Length(txt)] = '.' then
+          dot := False;
+        SetColor(Yellow);
+        OutTextXY(x + k * 8, y, txt[Length(txt)]);
+        Delete(txt, Length(txt), 1);
+        SetColor(Brown);
+        OutTextXY(x, y, txt)
+      end
+    end
+    else if (ch = '-') and (txt <> '') then
+      FlashError('’¥’´’∂’∏÷Ç’Ω’´ ’∂’∑’°’∂’® ’§’∂’∏÷Ç’¥ ’•’∂ ’©’æ’´ ’Ω’Ø’¶’¢’∏÷Ç’¥ ;)')
+    else if (txt = '') and (ch = '.') then
+      FlashError('’Ü’°’≠÷Ñ’°’∂ ’Ø’•’ø’´ ’∂’∑’°’∂ ’§’∂’•’¨’®, ’©’´’æ ’£÷Ä’•÷Ñ')
+    else if (txt = '-') and (ch = '.') then
+      FlashError('’¥’´’∂’∏÷Ç’Ω ’∂’∑’°’∂’´÷Å ’∞’•’ø’∏ ’£÷Ä’•÷Ñ ’©’´’æ, ’°’µ’¨ ’∏’π ’Ø’•’ø...')
+    else if (ch = '.') and dot then
+      FlashError('’Ø÷Ä’Ø’∂’°’Ø’´ ’¥’´ ’§÷Ä’•÷Ñ ’Ø’•’ø’´ ’∂’∑’°’∂')
+    else if ((txt = '0') or (txt = '-0')) and (ch <> '.') then
+      FlashError('’¶÷Ä’∏’µ’´÷Å ’∞’•’ø’∏ ’π’¥’∏’º’°’∂’°÷Ñ ’§’∂’•’¨ ’Ø’•’ø’´ ’∂’∑’°’∂’®')
+    else if not (ch in ['0'..'9', '-', '.']) then
+      FlashError('’©’´’æ, ’°’Ω’•÷Å’´’∂÷Ñ ’©’´’õ’æ ’£÷Ä’•÷Ñ')
+    else if (ch in ['0'..'9']) and (digits >= 9) then
+      FlashError('‘π’æ’°’∂’∑’°’∂’∂’•÷Ä’´ ÷Ñ’°’∂’°’Ø’® ’π’∫’•’õ’ø÷Ñ ’ß ’£’•÷Ä’°’¶’°’∂÷Å’´ 9-’®')
+    else
+    begin
+      if ch = '.' then
+        dot := True;
+      txt := txt + ch;
+      SetColor(Brown);
+      OutTextXY(x + k * 8, y, ch);
+      k := k + 1
+    end
+  until ch = KeyEnter;
+  ReadCell := True
+end;
+
+procedure SolveProblem;
+{ type a matrix, save it to 547.TXT, read it back and show the last row with the most equal elements }
+const
+  RowsPrompt = '’¥’∏÷Ç’ø÷Ñ’°’£÷Ä’•÷Ñ ’ø’∏’≤’•÷Ä’´ ÷Ñ’°’∂’°’Ø’® 2-’´÷Å 5 ’¥’´’ª’°’Ø’°’µ÷Ñ’∏÷Ç’¥`';
+  ColsPrompt = '’¥’∏÷Ç’ø÷Ñ’°’£÷Ä’•÷Ñ ’Ω’µ’∏÷Ç’∂’•÷Ä’´ ÷Ñ’°’∂’°’Ø’® 2-’´÷Å 5 ’¥’´’ª’°’Ø’°’µ÷Ñ’∏÷Ç’¥`';
+var
+  cells: array[1..5, 1..5] of TNumberText;
+  values: TMatrix;
+  row: TRow;
+  counts: TCounts;
+  rows, cols, fileRows, fileCols, i, j, best, answerRow, code, left, top: Integer;
+  f: Text;
+  textLine, s, o, p: string;
+  ch: Char;
+  Ext: Boolean;
+begin
+  HideGrCursor;
+  ClearDevice;
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetLineStyle(SolidLn, 0, NormWidth);
+  rows := ReadDimension(25, RowsPrompt);
+  if rows = 0 then
+    Exit;
+  cols := ReadDimension(40, ColsPrompt);
+  if cols = 0 then
+    Exit;
+  Eraser(divx - Length(ColsPrompt) * 4 - 16, 25, divx + Length(ColsPrompt) * 4 + 16, 40, Black);
+
+  Str(rows, o);
+  Str(cols, p);
+  SetColor(Red);
+  SetTextStyle(DefaultFont, HorizDir, 2);
+  OutCentered(25, '’¨÷Ä’°÷Å÷Ä’•÷Ñ ' + o + 'x' + p + ' ’π’°÷É’°’∂’´ ’¥’°’ø÷Ä’´÷Å’®');
+
+  { the grid: cells are 100 x 50 }
+  left := divx - cols * 50;
+  top := divy - rows * 25 - 50;
+  SetColor(Green);
+  SetLineStyle(SolidLn, 0, ThickWidth);
+  Rectangle(left - 2, top - 2, divx + cols * 50 + 2, divy + rows * 25 - 50 + 2);
+  SetFillStyle(SolidFill, Yellow);
+  Bar(left, top, divx + cols * 50, divy + rows * 25 - 50);
+  SetLineStyle(SolidLn, 0, NormWidth);
+  SetColor(LightRed);
+  for i := 1 to rows - 1 do
+    Line(left, top + i * 50, divx + cols * 50, top + i * 50);
+  for i := 1 to cols - 1 do
+    Line(left + i * 100, top, left + i * 100, divy + rows * 25 - 50);
+
+  for i := 0 to rows - 1 do
+    for j := 0 to cols - 1 do
+      if not ReadCell(rows, cols, i, j, cells[i + 1, j + 1]) then
+        Exit;
+
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetColor(Red);
+  s := '’ç’•’≤’¥’•÷Ñ Space ’ø’æ’µ’°’¨’∂’•÷Ä’® ÷Ü’°’µ’¨’∏÷Ç’¥ ’ø’∫’•’¨’∏÷Ç ’∞’°’¥’°÷Ä';
+  OutCentered(GetMaxY - 60, s);
+  repeat
+    GetKey(ch, Ext)
+  until not Ext and ((ch = KeySpace) or (ch = KeyEsc));
+  if ch = KeyEsc then
+    Exit;
+  SetColor(Black);
+  OutCentered(GetMaxY - 60, s);
+
+  { save the matrix, wiping each cell as it is written }
+  Assign(f, HomeFile('547.TXT'));
+  {$I-}
+  Rewrite(f);
+  WriteLn(f, o + ' ' + p);
+  for i := 1 to rows do
+  begin
+    textLine := '';
+    for j := 1 to cols do
+    begin
+      Eraser(left + (j - 1) * 100 + 10, top + (i - 1) * 50 + 20, left + (j - 1) * 100 + 90, 16, Yellow);
+      textLine := textLine + cells[i, j] + ' '
+    end;
+    WriteLn(f, textLine)
+  end;
+  Close(f);
+  {$I+}
+  if IOResult <> 0 then
+  begin
+    FileError('’â’∞’°’ª’∏’≤’æ’•÷Å ’∫’°’∞’∫’°’∂’•’¨ 547.TXT ÷Ü’°’µ’¨’®');
+    Exit
+  end;
+
+  { read it back and show each number again }
+  {$I-}
+  Reset(f);
+  ReadLn(f, textLine);
+  {$I+}
+  fileRows := 0;
+  fileCols := 0;
+  if IOResult = 0 then
+  begin
+    Val(Copy(textLine, 1, Pos(' ', textLine) - 1), fileRows, code);
+    Delete(textLine, 1, Pos(' ', textLine));
+    Val(textLine, fileCols, code)
+  end;
+  if (fileRows <> rows) or (fileCols <> cols) then
+  begin
+    {$I-}
+    Close(f);
+    {$I+}
+    code := IOResult;                { a file that never opened cannot be closed either }
+    FileError('’â’∞’°’ª’∏’≤’æ’•÷Å ’Ø’°÷Ä’§’°’¨ 547.TXT ÷Ü’°’µ’¨’®');
+    Exit
+  end;
+  SetColor(Brown);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  {$I-}
+  for i := 1 to rows do
+  begin
+    ReadLn(f, textLine);
+    for j := 1 to cols do
+    begin
+      s := Copy(textLine, 1, Pos(' ', textLine) - 1);
+      Val(s, values[i, j], code);
+      OutTextXY(left + (j - 1) * 100 + 10, top + (i - 1) * 50 + 20, s);
+      Delete(textLine, 1, Pos(' ', textLine));
+      Delay(200)
+    end
+  end;
+  Close(f);
+  {$I+}
+  if IOResult <> 0 then
+  begin
+    FileError('’â’∞’°’ª’∏’≤’æ’•÷Å ’Ø’°÷Ä’§’°’¨ 547.TXT ÷Ü’°’µ’¨’®');
+    Exit
+  end;
+
+  { for each row, count the equal pairs: every element is compared with the whole row }
+  for i := 1 to rows do
+  begin
+    for j := 1 to cols do
+      row[j] := values[i, j];
+    counts[i] := 0;
+    for j := 1 to cols do
+      counts[i] := counts[i] + CountEqual(row, cols, row[j])
+  end;
+  best := MaxElement(counts, rows);
+  answerRow := rows;
+  while counts[answerRow] <> best do
+    answerRow := answerRow - 1;
+  if best = cols then                { each element only matched itself }
+    s := '’°’µ’§’∫’´’Ω’´ ’ø’∏’≤ ’π’Ø’°'
+  else
+    Str(answerRow, s);
+  SetColor(Green);
+  SetTextStyle(DefaultFont, HorizDir, 2);
+  OutCentered(divy + 120, '’ä’°’ø’°’Ω’≠’°’∂` ' + s);
+
+  SetColor(Red);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  OutCentered(GetMaxY - 60, '’ç’•’≤’¥’•÷Ñ Space ’§’∏÷Ç÷Ä’Ω ’£’°’¨’∏÷Ç ’∞’°’¥’°÷Ä');
+  repeat
+    GetKey(ch, Ext)
+  until not Ext and ((ch = KeySpace) or (ch = KeyEsc));
+  ClearDevice
+end;
+
+{ ===== the fake Blue Screen ===== }
+
+procedure BlueScreen;
+{ a Windows XP crash screen; three key presses, then a winking smiley }
+var
+  i: Integer;
+begin
+  HideGrCursor;
+  ClearDevice;
+  SetBkColor(Blue);
+  SetColor(White);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  OutTextXY(0, 10, 'A problem has been detected and windows has been shut down to prevent damage');
+  OutTextXY(0, 25, 'to your computer.');
+  OutTextXY(0, 50, 'DRIVER_IRQL_NOT_LESS_OR_EQUAL');
+  OutTextXY(0, 75, 'If this is the first time you' + #39 + 've seen this stop error screen,');
+  OutTextXY(0, 90, 'restart your computer, If this screen appears again, follow');
+  OutTextXY(0, 105, 'these steps:');
+  OutTextXY(0, 130, 'Check to make sure any new hardware or software is properly installed.');
+  OutTextXY(0, 145, 'If this is a new installation, ask your hardware or software manufacturer');
+  OutTextXY(0, 160, 'for any windows updates you might need.');
+  OutTextXY(0, 185, 'If problems continue, disable or remove any newly installed hardware');
+  OutTextXY(0, 200, 'or software. Disable BIOS memory options such as caching or shadowing.');
+  OutTextXY(0, 215, 'If you need to use Safe Mode to remove or disable components, restart');
+  OutTextXY(0, 230, 'your computer, press F8 to select Advanced Startup Options, and then');
+  OutTextXY(0, 245, 'select Safe Mode.');
+  OutTextXY(0, 270, 'Technical information:');
+  OutTextXY(0, 285, '*** Stop: 0x000000D1 (0x00000000C,0x00000002,0x00000000,0xF86B5A89)');
+  OutTextXY(0, 335, '***       gv3.sys - Address F86B5A89 base at F86B50000, DateStamp 3dd991eb');
+  OutTextXY(0, 360, 'Beginning dump of physical memory');
+  OutTextXY(0, 375, 'Physical memory dump complete.');
+  OutTextXY(0, 390, 'Contact your system administrator or technical support group for further');
+  OutTextXY(0, 405, 'assistance.');
+  WaitKey;
+  WaitKey;
+  WaitKey;
+  SetBkColor(Black);
+  ClearDevice;
+  SetTextStyle(DefaultFont, HorizDir, 10);
+  for i := 15 downto 0 do
+  begin
+    SetColor(i);
+    OutTextXY(divx - 60, divy - 40, ';');
+    OutTextXY(divx - 20, divy - 35, ']');
+    Delay(200)
+  end;
+  ClearDevice
+end;
+
+{ ===== the desktop ===== }
+
+procedure DrawWallpaper;
+{ also closes the Start menu, its submenu and the task window }
+begin
+  MenuOpen := False;
+  SubmenuOpen := False;
+  TaskWindowOpen := False;
+  SetFillStyle(SolidFill, White);
+  Bar(0, 0, GetMaxX, GetMaxY - 37);
+  SetTextStyle(DefaultFont, HorizDir, 9);
+  SetColor(Green);
+  OutTextXY(divx - 225, divy - 50, '’Ñ’©-240')
+end;
+
+procedure DrawTaskbar;
+begin
+  SetFillStyle(SolidFill, DarkGray);
+  SetLineStyle(SolidLn, 0, NormWidth);
+  Bar(0, GetMaxY - 37, GetMaxX, GetMaxY);
+  { the round Start button with four coloured squares }
+  SetFillStyle(SolidFill, Cyan);
+  SetColor(Black);
+  FillEllipse(26, GetMaxY - 18, 18, 18);
+  SetFillStyle(SolidFill, DarkGray);
+  Bar(16, GetMaxY - 28, 36, GetMaxY - 8);
+  SetFillStyle(SolidFill, Red);
+  Bar(17, GetMaxY - 27, 25, GetMaxY - 19);
+  SetFillStyle(SolidFill, Blue);
+  Bar(17, GetMaxY - 17, 25, GetMaxY - 9);
+  SetFillStyle(SolidFill, Green);
+  Bar(27, GetMaxY - 27, 35, GetMaxY - 19);
+  SetFillStyle(SolidFill, LightRed);
+  Bar(27, GetMaxY - 17, 35, GetMaxY - 9);
+  ClockText := ''                    { the bar painted over the clock }
+end;
+
+procedure DrawClock;
+{ redraw the clock in the taskbar when the time has changed }
+var
+  h, m, s, hundredths: Word;
+  t: string[8];
+  nearCursor: Boolean;
+begin
+  GetTime(h, m, s, hundredths);
+  t := TwoDigits(h) + ':' + TwoDigits(m) + ':' + TwoDigits(s);
+  if t <> ClockText then
+  begin
+    nearCursor := (MouseX >= GetMaxX - 90) and (MouseY >= GetMaxY - 40);
+    if nearCursor then
+      HideGrCursor;
+    SetTextStyle(DefaultFont, HorizDir, 1);
+    SetColor(DarkGray);
+    OutTextXY(GetMaxX - 70, GetMaxY - 20, ClockText);
+    SetColor(White);
+    OutTextXY(GetMaxX - 70, GetMaxY - 20, t);
+    if nearCursor then
+      ShowGrCursor;
+    ClockText := t
+  end
+end;
+
+procedure DrawStartMenu;
+begin
+  MenuOpen := True;
+  SetFillStyle(SolidFill, DarkGray);
+  Bar(0, GetMaxY - 253, 153, GetMaxY - 39);
+  SetFillStyle(SolidFill, White);
+  Bar(3, GetMaxY - 250, 150, GetMaxY - 41);
+
+  { Turbo Pascal icon }
+  SetFillStyle(SolidFill, Black);
+  Bar(10, GetMaxY - 243, 42, GetMaxY - 211);
+  SetFillStyle(InterleaveFill, Red);
+  Bar(15, GetMaxY - 240, 40, GetMaxY - 215);
+  SetColor(Yellow);
+  SetTextStyle(DefaultFont, HorizDir, 2);
+  OutTextXY(12, GetMaxY - 233, 'TP');
+
+  { Tron icon }
+  SetColor(Blue);
+  SetLineStyle(SolidLn, 0, ThickWidth);
+  SetFillStyle(SolidFill, Black);
+  FillEllipse(26, GetMaxY - 190, 16, 16);
+  SetColor(White);
+  OutTextXY(20, GetMaxY - 195, 'T');
+
+  { Problem 547 icon, and the arrow that opens its submenu }
+  Bar(10, GetMaxY - 161, 42, GetMaxY - 145);
+  SetColor(Black);
+  OutTextXY(12, GetMaxY - 165, '?');
+  SetColor(Yellow);
+  OutTextXY(14, GetMaxY - 163, '?');
+  SetColor(Black);
+  OutTextXY(28, GetMaxY - 165, '!');
+  SetColor(Red);
+  OutTextXY(30, GetMaxY - 163, '!');
+  SetColor(Black);
+  SetLineStyle(SolidLn, 0, NormWidth);
+  Line(133, GetMaxY - 160, 133, GetMaxY - 152);
+  Line(134, GetMaxY - 159, 137, GetMaxY - 156);
+  Line(134, GetMaxY - 153, 136, GetMaxY - 155);
+
+  { separator and the Exit icon }
+  SetLineStyle(SolidLn, 0, 2);
+  SetColor(DarkGray);
+  Line(3, GetMaxY - 90, 150, GetMaxY - 90);
+  SetFillStyle(SolidFill, Red);
+  Bar(10, GetMaxY - 80, 42, GetMaxY - 48);
+  SetColor(White);
+  SetLineStyle(SolidLn, 0, ThickWidth);
+  FillEllipse(27, GetMaxY - 64, 12, 12);
+  Line(26, GetMaxY - 68, 26, GetMaxY - 60);
+
+  SetColor(Black);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  OutTextXY(50, GetMaxY - 230, 'Turbo Pascal');
+  OutTextXY(50, GetMaxY - 192, 'Tron');
+  OutTextXY(50, GetMaxY - 160, '‘Ω’∂’§’´÷Ä 547');
+  OutTextXY(50, GetMaxY - 65, '‘µ’¨÷Ñ')
+end;
+
+procedure DrawProblemMenu;
+{ the submenu next to Problem 547: the task and its solution }
+begin
+  SubmenuOpen := True;
+  SetColor(DarkGray);
+  SetLineStyle(SolidLn, 0, NormWidth);
+  Rectangle(153, GetMaxY - 181, 305, GetMaxY - 132);
+  SetFillStyle(SolidFill, White);
+  Bar(154, GetMaxY - 180, 304, GetMaxY - 133);
+  SetFillStyle(SolidFill, LightBlue);
+  SetTextStyle(DefaultFont, HorizDir, 2);
+  Bar(159, GetMaxY - 175, 175, GetMaxY - 159);
+  SetColor(Yellow);
+  OutTextXY(161, GetMaxY - 174, '?');
+  Bar(159, GetMaxY - 154, 175, GetMaxY - 138);
+  SetColor(Red);
+  OutTextXY(161, GetMaxY - 153, '!');
+  SetColor(Black);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  OutTextXY(181, GetMaxY - 170, '’ä’°’∞’°’∂’ª');
+  OutTextXY(181, GetMaxY - 149, '‘º’∏÷Ç’Æ’∏÷Ç’¥')
+end;
+
+procedure ShowTaskText;
+{ the window with the task statement; its red x closes it }
+begin
+  DrawWallpaper;
+  TaskWindowOpen := True;
+  SetFillStyle(SolidFill, DarkGray);
+  Bar(40, 40, GetMaxX - 40, GetMaxY - 80);
+  SetFillStyle(SolidFill, White);
+  Bar(50, 70, GetMaxX - 50, GetMaxY - 90);
+  SetFillStyle(SolidFill, Red);
+  Bar(GetMaxX - 85, 45, GetMaxX - 50, 60);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetColor(White);
+  OutTextXY(GetMaxX - 71, 49, 'x');
+  SetGrCursor(20, 20);
+  TypeText(divx - 100, 100, Red, 2, '‘Ω’∂’§’´÷Ä 547');
+  TypeText(45, 130, Green, 1, '’ä’°’∞’°’∂’ª`');
+  TypeText(45, 145, Blue, 1, '’è÷Ä’æ’°’Æ ’ß MxN ’π’°÷É’°’∂’´ ’¥’°’ø÷Ä’´÷Å’®: ‘±÷Ä’ø’°’Æ’•’¨ ’¥’°’ø÷Ä’´÷Å’´ ’°’µ’∂ ’æ’•÷Ä’ª’´’∂ ’ø’∏’≤’´ ’∞’°’¥’°÷Ä’®,');
+  TypeText(45, 160, Blue, 1, '’∏÷Ä’® ’∫’°÷Ä’∏÷Ç’∂’°’Ø’∏÷Ç’¥ ’ß ’¥’•’Æ’°’£’∏÷Ç’µ’∂ ÷Ñ’°’∂’°’Ø’∏÷Ç’©’µ’°’¥’¢ ’´÷Ä’°÷Ä ’∞’°’æ’°’Ω’°÷Ä ’ø’°÷Ä÷Ä’•÷Ä:');
+  TypeText(45, 225, Green, 1, '‘µ’∂’©’°’Æ÷Ä’°’£÷Ä’•÷Ä`');
+  TypeText(45, 240, Blue, 1, '1.’Ä’°’∑’æ’•’¨ ’æ’•’Ø’ø’∏÷Ä’´ a-’´’∂ ’∞’°’æ’°’Ω’°÷Ä ’ø’°÷Ä÷Ä’•÷Ä’´ ÷Ñ’°’∂’°’Ø’®:');
+  TypeText(45, 255, Blue, 1, '2.’Ä’°’∑’æ’•’¨ ’æ’•’Ø’ø’∏÷Ä’´ ’¥’•’Æ’°’£’∏÷Ç’µ’∂ ’ø’°÷Ä÷Ä’®:')
+end;
+
+function DesktopAction(x, y: Integer): Integer;
+{ what a left click at (x, y) does }
+var
+  b: Integer;
+begin
+  b := GetMaxY;
+  if not MenuOpen and InRect(x, y, 8, b - 36, 44, b) then
+    DesktopAction := actOpenMenu
+  else if SubmenuOpen and InRect(x, y, 159, b - 175, 304, b - 159) then
+    DesktopAction := actTaskText
+  else if SubmenuOpen and InRect(x, y, 159, b - 154, 304, b - 138) then
+    DesktopAction := actSolve
+  else if MenuOpen and not InRect(x, y, 0, b - 253, 153, b - 41) then
+    DesktopAction := actClose
+  else if TaskWindowOpen and InRect(x, y, GetMaxX - 85, 45, GetMaxX - 50, 60) then
+    DesktopAction := actClose
+  else if MenuOpen and InRect(x, y, 10, b - 243, 150, b - 211) then
+    DesktopAction := actBlueScreen
+  else if MenuOpen and InRect(x, y, 10, b - 206, 150, b - 174) then
+    DesktopAction := actTron
+  else if MenuOpen and InRect(x, y, 10, b - 161, 150, b - 145) then
+    DesktopAction := actProblemMenu
+  else if MenuOpen and InRect(x, y, 10, b - 80, 150, b - 48) then
+    DesktopAction := actExit
+  else
+    DesktopAction := actNone
+end;
+
+var
+  GraphDriver, GraphMode, Action, Buttons: Integer;
+
+begin
+  Randomize;                         { the computer player turns differently every time }
+  UseArmenianFont;
+  GraphDriver := Detect;
+  if RegisterBGIdriver(@EgaVgaDriverProc) >= 0 then
+    InitGraph(GraphDriver, GraphMode, '');
+  Action := GraphResult;             { reading GraphResult clears it }
+  if Action <> grOk then
+  begin
+    WriteLn('Graphics could not start: ', GraphErrorMsg(Action));
+    WriteLn('TRON needs an EGA or VGA display.');
+    Halt(1)
+  end;
+  divx := GetMaxX div 2;
+  divy := GetMaxY div 2;
+  if InitGraphMouse = 0 then
+  begin
+    SetTextStyle(DefaultFont, HorizDir, 1);
+    SetColor(White);
+    OutCentered(divy, '’Ñ’Ø’∂’´’Ø’® ’π’´ ’£’ø’∂’æ’•’¨: ‘æ÷Ä’°’£’´÷Ä’∂ ’°’º’°’∂÷Å ’¥’Ø’∂’´’Ø’´ ’π’´ ’°’∑’≠’°’ø’∏÷Ç’¥:');
+    WaitKey;
+    CloseGraph;
+    Halt(1)
+  end;
+  SetGrCursor(divx, divy - 60);
+  DrawWallpaper;
+  repeat
+    DrawTaskbar;
+    ShowGrCursor;
+    repeat
+      DrawClock;
+      Buttons := ReadGrCursor(MouseX, MouseY);
+      Action := actNone;
+      if (Buttons = 1) and not MouseDown then   { react when the button goes down, not while it is held }
+        Action := DesktopAction(MouseX, MouseY);
+      MouseDown := Buttons <> 0
+    until Action <> actNone;
+    HideGrCursor;                    { every action draws; the cursor comes back with the taskbar }
+    case Action of
+      actOpenMenu: DrawStartMenu;
+      actClose: DrawWallpaper;
+      actBlueScreen:
+        begin
+          BlueScreen;
+          DrawWallpaper
+        end;
+      actTron:
+        begin
+          TronMenu;
+          DrawWallpaper
+        end;
+      actProblemMenu: DrawProblemMenu;
+      actTaskText: ShowTaskText;
+      actSolve:
+        begin
+          SolveProblem;
+          DrawWallpaper
+        end
+    end
+  until Action = actExit;
+  CloseGraph
+end.
