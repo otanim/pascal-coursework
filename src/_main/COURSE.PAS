@@ -1,9 +1,9 @@
-program Tron;
+program Course;
 { Coursework for SEUA (2012-2014), rebuilt with Turbo Pascal 5.5.
   A small DOS "desktop" in 640x480 VGA with a Start menu: a fake Blue Screen,
   the Tron light-cycle game and Problem 547 (the matrix row with the most equal elements).
   The Armenian texts use the AK Yerevan DOS encoding of FONT.COM, whose glyphs
-  ARMFONT.INC carries, and the EGA/VGA driver is linked in: TRON.EXE runs on its own. }
+  ARMFONT.INC carries, and the EGA/VGA driver is linked in: COURSE.EXE runs on its own. }
 
 uses Dos, Crt, Graph, GrMouse;
 
@@ -142,7 +142,7 @@ begin
 end;
 
 function HomeFile(name: string): string;
-{ the file called name in the folder TRON.EXE was started from }
+{ the file called name in the folder COURSE.EXE was started from }
 var
   p: string;
   i: Integer;
@@ -1236,7 +1236,7 @@ begin
   if Action <> grOk then
   begin
     WriteLn('Graphics could not start: ', GraphErrorMsg(Action));
-    WriteLn('TRON needs an EGA or VGA display.');
+    WriteLn('COURSE.EXE needs an EGA or VGA display.');
     Halt(1)
   end;
   divx := GetMaxX div 2;
