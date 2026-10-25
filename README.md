@@ -3,6 +3,8 @@
 This is my course work that I wrote in Pascal and Assembler, I did it in the second year of studying at SEUA.
 Then I still was a novice in programming, so do not judge strictly :smile:
 
+**Play it in the browser: https://coursework.otanim.com**
+
 ## How to run
 The game is a DOS program, so it runs in [DOSBox Staging](https://www.dosbox-staging.org/). From the repository folder:
 
