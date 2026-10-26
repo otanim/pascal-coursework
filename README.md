@@ -13,12 +13,12 @@ The game is a DOS program, so it runs in [DOSBox Staging](https://www.dosbox-sta
 `COURSE.EXE` carries its own graphics driver and Armenian font, so it needs no other files and works with any DOSBox keyboard layout. Problem 547 saves the matrix as `547.TXT` next to `COURSE.EXE`.
 
 ## How to build
-`./build.sh` compiles `src/_main/COURSE.PAS` into `bin/COURSE.EXE` with [Turbo Pascal 5.5](https://altd.embarcadero.com/download/museum/tp55.zip), which Embarcadero offers as a free download. It runs DOSBox Staging without a window, and links in `EGAVGA.BGI` from Turbo Pascal with `BINOBJ`. The source is kept as UTF-8, so the script first uses `python3 tools/akconv.py` to give the compiler a copy in the DOS encoding.
+`./build.sh` compiles `src/_main/COURSE.PAS` and its units into `bin/COURSE.EXE` with [Turbo Pascal 5.5](https://altd.embarcadero.com/download/museum/tp55.zip), which Embarcadero offers as a free download. It runs DOSBox Staging without a window, and links in `EGAVGA.BGI` from Turbo Pascal with `BINOBJ`. The source is kept as UTF-8, so the script first uses `python3 tools/akconv.py` to give the compiler copies in the DOS encoding.
 
 The script expects Turbo Pascal in `~/.local/opt/tp55`, with `BGI.ARC` and `UTILS.ARC` unpacked there (for `GRAPH.TPU`, `EGAVGA.BGI` and `BINOBJ.EXE`), and DOSBox Staging in `~/.local/opt/dosbox-staging-v0.83.0`. Set `TP55` or `DOSBOX` to use other locations.
 
 ## Files
-- `src/_main/COURSE.PAS`: the main program (desktop, Tron, Problem 547), stored as UTF-8. Its Armenian texts must stay within the letters and marks the DOS font has: write `եւ`, not `և`, and Armenian punctuation, `՛` or `՞` after the stressed vowel, never `!` or `?`.
+- `src/_main/COURSE.PAS`: the program, which starts the graphics, the fonts and the mouse and runs the desktop, and its units, each using only those listed before it: `SHARED.PAS` (the keys, the mouse and its cursor, the fonts, centred text, the clock, waiting for a key or a click), `MENUS.PAS`, `TRON.PAS`, `P547.PAS` (Problem 547) and `DESKTOP.PAS` (with the fake Blue Screen). All of them are stored as UTF-8. Its Armenian texts must stay within the letters and marks the DOS font has: write `եւ`, not `և`, and Armenian punctuation, `՛` or `՞` after the stressed vowel, never `!` or `?`.
 - `src/_main/GRMOUSE.PAS`: the graphical mouse unit. It talks to the DOS mouse driver; the Turbo Pascal 7 original did this in inline assembler.
 - `src/_main/ARMFONT.INC`: the Armenian 8x8 font the program draws its texts with.
 - `src/_main/FONT16.INC`: the 8x16 characters the rules of Tron are written in, taller than the 8x8 ones: the VGA's own, and FONT.COM's Armenian ones. `tools/font16.sh` makes it again, running `FONT /A` and `tools/FONTDUMP.PAS` in DOSBox without a window.

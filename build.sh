@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build bin/COURSE.EXE from src/_main with Turbo Pascal 5.5, running DOSBox without a window.
-# COURSE.PAS is kept as UTF-8; the compiler gets a copy in the AK Yerevan DOS encoding (tools/akconv.py).
+# The program, COURSE.PAS, and its units are kept as UTF-8; the compiler gets copies in the AK Yerevan DOS encoding
+# (tools/akconv.py), and builds the units with it (TPC /B).
 #   DOSBOX  path to the DOSBox Staging binary (default: ~/.local/opt/dosbox-staging-v0.83.0/dosbox)
 #   TP55    folder holding TPC.EXE, TURBO.TPL, GRAPH.TPU, BINOBJ.EXE and EGAVGA.BGI (default: ~/.local/opt/tp55)
 set -euo pipefail
@@ -11,8 +12,11 @@ tp=${TP55:-$HOME/.local/opt/tp55}
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
-python3 "$repo/tools/akconv.py" encode "$repo/src/_main/COURSE.PAS" "$out/COURSE.PAS"
-cp "$repo/src/_main/GRMOUSE.PAS" "$repo/src/_main/ARMFONT.INC" "$repo/src/_main/FONT16.INC" "$out/"
+# every unit, and the program, in the DOS encoding; the fonts as they are
+for source in "$repo"/src/_main/*.PAS; do
+  python3 "$repo/tools/akconv.py" encode "$source" "$out/$(basename "$source")"
+done
+cp "$repo/src/_main/ARMFONT.INC" "$repo/src/_main/FONT16.INC" "$out/"
 
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy nice -n 19 "$dosbox" \
   --noprimaryconf --nolocalconf --set nosound=true --set startup_verbosity=quiet \
