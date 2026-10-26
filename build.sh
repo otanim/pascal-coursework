@@ -12,7 +12,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 python3 "$repo/tools/akconv.py" encode "$repo/src/_main/COURSE.PAS" "$out/COURSE.PAS"
-cp "$repo/src/_main/GRMOUSE.PAS" "$repo/src/_main/ARMFONT.INC" "$out/"
+cp "$repo/src/_main/GRMOUSE.PAS" "$repo/src/_main/ARMFONT.INC" "$repo/src/_main/FONT16.INC" "$out/"
 
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy nice -n 19 "$dosbox" \
   --noprimaryconf --nolocalconf --set nosound=true --set startup_verbosity=quiet \

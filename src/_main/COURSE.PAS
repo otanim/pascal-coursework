@@ -81,6 +81,7 @@ const
   );
 
 {$I ARMFONT.INC}
+{$I FONT16.INC}
 
 var
   divx, divy: Integer;               { centre of the screen }
@@ -99,6 +100,7 @@ var
   MoveTick: Word;                    { the BIOS timer tick, 18.2 a second, of the first of them }
   ClockText: string[8];
   MouseThere: Boolean;               { a mouse driver answered at the start; without one, only keys count }
+  Hurried: Boolean;                  { a key or a click cut the Tron logo's tracing, or its pause, short }
 
   { Tron: cycle 1 is cyan (arrow keys), cycle 2 is yellow (WASD or the computer) }
   Xpos1, Ypos1, Npos1: Integer;
@@ -142,30 +144,45 @@ begin
     ch := ReadKey
 end;
 
-procedure WaitFor(var ch: Char);
-{ wait for a fresh key press or click, and give the key, or #0 for a click or an arrow: drop keys already typed or
-  still held down, and a button still held. A tap on a touch screen is a click, so a phone without pads gets on too.
-  A click counts once its button is let go, so it doesn't also click what the screen shows next }
+function ButtonDown: Boolean;
+{ a mouse button is held down: a click, or a tap on a touch screen, under way }
 var
-  Ext: Boolean;
   x, y: Integer;
 begin
-  ch := #0;
+  ButtonDown := MouseThere and (ReadGrCursor(x, y) <> 0)
+end;
+
+procedure DropInput;
+{ drop keys already typed or still held down, and wait for a button still held to be let go, so they don't also act
+  on what the screen shows next }
+var
+  ch: Char;
+begin
   repeat
     while KeyPressed do
       ch := ReadKey;
     Delay(300)
   until not KeyPressed;
+  while ButtonDown do
+    Delay(10)
+end;
+
+procedure WaitFor(var ch: Char);
+{ wait for a fresh key press or click, and give the key, or #0 for a click or an arrow. A tap on a touch screen is a
+  click, so a phone without pads gets on too. A click counts once its button is let go }
+var
+  Ext: Boolean;
+begin
+  ch := #0;
+  DropInput;
   if MouseThere then
   begin
-    while ReadGrCursor(x, y) <> 0 do
-      Delay(10);
     repeat
       Delay(10)
-    until KeyPressed or (ReadGrCursor(x, y) <> 0);
+    until KeyPressed or ButtonDown;
     if not KeyPressed then
     begin
-      while ReadGrCursor(x, y) <> 0 do
+      while ButtonDown do
         Delay(10);
       Exit
     end
@@ -279,52 +296,113 @@ begin
   TwoDigits := s
 end;
 
-function InkX(x1, x2: Integer; s: string): Integer;
-{ where s starts for what it shows, not its characters' boxes, to be centred between x1 and x2, in the default font
-  at the current size: most characters leave their last columns blank, some their first }
+function GlyphInk(c: Char; tall: Boolean): Byte;
+{ the columns of c that show anything, as the bits of one row: of its 8x16 character in Font16 when tall, else of its
+  8x8 one in graphics text, $80..$FF the Armenian table's and the rest the BIOS's own }
 var
-  ts: TextSettingsType;
-  first, last, left, right: Integer;
-  bits: Byte;
-
-  function Ink(c: Char): Byte;
-  { the columns of c that show anything, as the bits of one row; $80..$FF are the Armenian table's, the rest the
-    BIOS's own }
-  var
-    r: Integer;
-    b: Byte;
-  begin
-    b := 0;
+  r: Integer;
+  b: Byte;
+begin
+  b := 0;
+  if tall then
+    for r := 0 to 15 do
+      b := b or Font16[Ord(c) * 16 + r]
+  else
     for r := 0 to 7 do
       if Ord(c) >= $80 then
         b := b or ArmenianFont[(Ord(c) - $80) * 8 + r]
       else
         b := b or RomFont[Ord(c) * 8 + r];
-    Ink := b
-  end;
+  GlyphInk := b
+end;
 
+function InkStart(x1, x2: Integer; s: string; tall: Boolean; size: Integer): Integer;
+{ where s starts for what it shows, not its characters' boxes, to be centred between x1 and x2: in the 8x16
+  characters when tall, else in graphics text at the given size. Most characters leave their last columns blank,
+  some their first }
+var
+  first, last, left, right: Integer;
+  bits: Byte;
 begin
   first := 1;
-  while (first <= Length(s)) and (Ink(s[first]) = 0) do
+  while (first <= Length(s)) and (GlyphInk(s[first], tall) = 0) do
     Inc(first);
   if first > Length(s) then
   begin
-    InkX := (x1 + x2 + 1) div 2 - TextWidth(s) div 2;
+    InkStart := (x1 + x2 + 1) div 2 - Length(s) * 4 * size;
     Exit
   end;
   last := Length(s);
-  while Ink(s[last]) = 0 do
+  while GlyphInk(s[last], tall) = 0 do
     Dec(last);
-  bits := Ink(s[first]);
+  bits := GlyphInk(s[first], tall);
   left := 0;
   while bits and ($80 shr left) = 0 do
     Inc(left);
-  bits := Ink(s[last]);
+  bits := GlyphInk(s[last], tall);
   right := 7;
   while bits and ($80 shr right) = 0 do
     Dec(right);
+  InkStart := (x1 + x2 - ((first - 1) * 8 + left) * size - ((last - 1) * 8 + right + 1) * size + 1) div 2
+end;
+
+function InkX(x1, x2: Integer; s: string): Integer;
+{ where s starts to be centred by what it shows between x1 and x2, in graphics text at the current size }
+var
+  ts: TextSettingsType;
+begin
   GetTextSettings(ts);
-  InkX := (x1 + x2 - ((first - 1) * 8 + left) * ts.CharSize - ((last - 1) * 8 + right + 1) * ts.CharSize + 1) div 2
+  InkX := InkStart(x1, x2, s, False, ts.CharSize)
+end;
+
+procedure OutTall(x, y: Integer; s: string; color: Word);
+{ s in the 8x16 characters of Font16, its top left at (x, y), in color, over what is there: written straight into
+  the VGA's memory, a row of dots at a time, as graphics text has no size between 8x8 and 16x16 and drawing dot by
+  dot through it would be slow at DOSBox's pace }
+var
+  i, r: Integer;
+  cx, row, offs, bits: Word;
+  latch: Byte;
+begin
+  Port[$3CE] := 0;                   { set/reset: the color, }
+  Port[$3CF] := color;
+  Port[$3CE] := 1;                   { into all four planes }
+  Port[$3CF] := $0F;
+  Port[$3CE] := 3;                   { no rotation, no logic }
+  Port[$3CF] := 0;
+  Port[$3CE] := 5;                   { write mode 0 }
+  Port[$3CF] := 0;
+  Port[$3CE] := 8;                   { the bit mask from here on }
+  for i := 1 to Length(s) do
+  begin
+    cx := x + (i - 1) * 8;
+    for r := 0 to 15 do
+    begin
+      bits := Font16[Ord(s[i]) * 16 + r];
+      if bits <> 0 then
+      begin
+        { the row's 8 dots as 16 bits, the high byte at the screen's byte cx div 8 and the low byte the next }
+        bits := bits shl (8 - cx and 7);
+        row := y + r;
+        offs := row * 80 + cx shr 3;
+        Port[$3CF] := Hi(bits);
+        latch := Mem[$A000:offs];
+        Mem[$A000:offs] := $FF;
+        if Lo(bits) <> 0 then
+        begin
+          Port[$3CF] := Lo(bits);
+          latch := Mem[$A000:offs + 1];
+          Mem[$A000:offs + 1] := $FF
+        end
+      end
+    end
+  end;
+  { the registers as graphics expects them }
+  Port[$3CF] := $FF;
+  Port[$3CE] := 1;
+  Port[$3CF] := 0;
+  Port[$3CE] := 0;
+  Port[$3CF] := 0
 end;
 
 procedure OutCentered(y: Integer; s: string);
@@ -580,10 +658,12 @@ end;
 { ===== Tron ===== }
 
 procedure DrawLogo(traced: Boolean);
-{ the TRON logo: traced square by square, where a key press draws the rest of it at once, or drawn at once }
+{ the TRON logo: traced square by square, where a key press or a click draws the rest of it at once and sets Hurried,
+  or drawn at once }
 var
   s, i, x, y: Integer;
 begin
+  Hurried := False;
   SetFillStyle(SolidFill, Green);
   for s := 1 to 10 do
   begin
@@ -604,56 +684,66 @@ begin
         end;
       { a pixel right of divx: its squares run from -37 to 36, so that puts its middle in the screen's }
       Bar(divx + 1 + x * 6, divy - LogoRaise + y * 6, divx + 1 + x * 6 + 5, divy - LogoRaise + y * 6 + 5);
-      if traced and not KeyPressed then
-        Delay(10)
+      if traced and not Hurried then
+      begin
+        Hurried := KeyPressed or ButtonDown;
+        if not Hurried then
+          Delay(10)
+      end
     end
   end
 end;
 
 procedure ShowRules;
-{ every line centred whole; a colour's name in a line is drawn over again in that colour }
+{ the rules in the 8x16 characters, taller than graphics text's 8x8 and narrower than its 16x16, a line under
+  another, each centred whole; a colour's name in a line is drawn over again in that colour. Under them, where the
+  logo's screen has its prompt, how to go back }
+const
+  Pitch = 20;                        { from one line to the next; a section has a blank line before it }
 var
   s: string;
-  x, y: Integer;
+  x, y, lineY: Integer;
 
-  procedure Line(at: Integer; text: string);
+  procedure Line(text: string; color: Word);
+  { the next line, centred, in color }
   begin
     s := text;
-    y := at;
-    x := InkX(0, GetMaxX, s);
-    SetColor(LightGray);
-    OutTextXY(x, y, s)
+    x := InkStart(0, GetMaxX, s, True, 1);
+    lineY := y;
+    OutTall(x, lineY, s, color);
+    y := y + Pitch
   end;
 
   procedure Paint(name: string; color: Word);
+  { name, where it is in the last line, in color }
   begin
-    SetColor(color);
-    OutTextXY(x + (Pos(name, s) - 1) * 8, y, name)
+    OutTall(x + (Pos(name, s) - 1) * 8, lineY, name, color)
   end;
 
 begin
   ClearDevice;
-  SetTextStyle(DefaultFont, HorizDir, 1);
-  SetColor(Green);
-  OutCentered(100, 'Բովանդակություն');
-  SetColor(LightGray);
-  OutCentered(115, 'Խաղի նպատակն է դուրս բերել հակառակորդին կառավարումից:');
-  OutCentered(130, 'Խաղացողը համարվում է հաղթող, եթե հակառակորդը բախվել է ինչ-որ խոչընդոտի:');
-  SetColor(Brown);
-  OutCentered(180, 'Կառավարում');
+  y := 96;
+  Line('Բովանդակություն', Green);
+  Line('Խաղի նպատակն է դուրս բերել հակառակորդին կառավարումից:', LightGray);
+  Line('Խաղացողը համարվում է հաղթող, եթե հակառակորդը բախվել է ինչ-որ խոչընդոտի:', LightGray);
+  y := y + Pitch;
+  Line('Կառավարում', Brown);
   { the arrows are the font's own, characters 24 to 27 }
-  Line(195, 'Կապույտ խաղացող` վերեւ` '#24', ներքեւ` '#25', աջ` '#26', ձախ` '#27':');
+  Line('Կապույտ խաղացող` վերեւ` '#24', ներքեւ` '#25', աջ` '#26', ձախ` '#27':', LightGray);
   Paint('Կապույտ', Cyan);
-  Line(210, 'Դեղին խաղացող` վերեւ` W, ներքեւ` S, աջ` D, ձախ` A:');
+  Line('Դեղին խաղացող` վերեւ` W, ներքեւ` S, աջ` D, ձախ` A:', LightGray);
   Paint('Դեղին', Yellow);
-  SetColor(LightBlue);
-  OutCentered(260, 'Ռեժիմներ');
-  Line(275, 'Խաղացողն ընդդեմ համակարգչի: Խաղացողի գույնը` կապույտ, համակարգչինը` դեղին:');
+  y := y + Pitch;
+  Line('Ռեժիմներ', LightBlue);
+  Line('Խաղացողն ընդդեմ համակարգչի: Խաղացողի գույնը` կապույտ, համակարգչինը` դեղին:', LightGray);
   Paint('կապույտ', Cyan);
   Paint('դեղին', Yellow);
-  Line(290, 'Խաղացողն ընդդեմ խաղացողի: Խաղացողների գույները` դեղին եւ կապույտ:');
+  Line('Խաղացողն ընդդեմ խաղացողի: Խաղացողների գույները` դեղին եւ կապույտ:', LightGray);
   Paint('դեղին', Yellow);
   Paint('կապույտ', Cyan);
+  SetTextStyle(DefaultFont, HorizDir, 1);
+  SetColor(LightGray);
+  OutCentered(GetMaxY - 60, 'Սեղմեք ցանկացած ստեղն գլխավոր ընտրացանկ վերադառնալու համար');
   WaitKey;
   ClearDevice
 end;
@@ -885,21 +975,32 @@ begin
   HideGrCursor;
   ClearDevice;
   DrawLogo(True);
-  { the logo alone a moment, to be seen whole; a key, the one that hurried it or a new one, ends that at once }
+  { the logo alone a moment, to be seen whole }
   waited := 0;
-  while (waited < LogoPause) and not KeyPressed do
+  while not Hurried and (waited < LogoPause) do
   begin
-    Delay(50);
-    waited := waited + 50
+    Delay(10);
+    waited := waited + 10;
+    Hurried := KeyPressed or ButtonDown
   end;
-  { the prompt at the foot of the screen; a key takes it away and brings the menu under the logo }
-  SetTextStyle(DefaultFont, HorizDir, 1);
-  SetColor(LightGray);
-  OutCentered(GetMaxY - 60, Prompt);
-  WaitKey;                           { a fresh key: not the one that hurried the logo, nor one still held }
-  SetColor(Black);
-  OutCentered(GetMaxY - 60, Prompt);
   BuildTronMenu(modes);
+  if Hurried then
+  begin
+    { a key or a click while the logo was traced or paused: the menu at once, without the prompt. That key or
+      click doesn't also choose in it }
+    DrawMenu(modes, modes.Current);
+    DropInput
+  end
+  else
+  begin
+    { the prompt at the foot of the screen; a key or a click takes it away and brings the menu under the logo }
+    SetTextStyle(DefaultFont, HorizDir, 1);
+    SetColor(LightGray);
+    OutCentered(GetMaxY - 60, Prompt);
+    WaitKey;
+    SetColor(Black);
+    OutCentered(GetMaxY - 60, Prompt)
+  end;
   repeat
     choice := Choose(modes);
     if (choice = 1) or (choice = 2) then

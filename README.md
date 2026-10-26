@@ -21,8 +21,9 @@ The script expects Turbo Pascal in `~/.local/opt/tp55`, with `BGI.ARC` and `UTIL
 - `src/_main/COURSE.PAS`: the main program (desktop, Tron, Problem 547), stored as UTF-8. Its Armenian texts must stay within the letters and marks the DOS font has: write `եւ`, not `և`, and Armenian punctuation, `՛` or `՞` after the stressed vowel, never `!` or `?`.
 - `src/_main/GRMOUSE.PAS`: the graphical mouse unit. It talks to the DOS mouse driver; the Turbo Pascal 7 original did this in inline assembler.
 - `src/_main/ARMFONT.INC`: the Armenian 8x8 font the program draws its texts with.
+- `src/_main/FONT16.INC`: the 8x16 characters the rules of Tron are written in, taller than the 8x8 ones: the VGA's own, and FONT.COM's Armenian ones. `tools/font16.sh` makes it again, running `FONT /A` and `tools/FONTDUMP.PAS` in DOSBox without a window.
 - `bin/COURSE.EXE`: the ready-to-run program.
-- `package.json`: lets other projects, like the coursework.otanim.com website, install `COURSE.EXE` from a release tag (`github:otanim/pascal-coursework#v2.1.2`).
+- `package.json`: lets other projects, like the coursework.otanim.com website, install `COURSE.EXE` from a release tag (`github:otanim/pascal-coursework#v2.1.3`).
 - `tools/akconv.py`: converts between UTF-8 and the AK Yerevan DOS encoding the font uses.
 - `tools/FONT.COM`: the Armenian font driver from 1990 that `ARMFONT.INC` comes from. To edit in the Turbo Pascal editor, make a DOS copy with `tools/akconv.py encode` and run `FONT /A` first.
 
