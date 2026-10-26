@@ -1,12 +1,13 @@
 unit GrMouse;
 { The mouse in graphics mode, through the DOS mouse driver (interrupt 33h):
-  an arrow-shaped cursor, showing and hiding it, its position and the buttons. }
+  a slim arrow cursor, showing and hiding it, its position and the buttons. }
 
 interface
 
 function InitGraphMouse: Integer;               { 1 when a mouse driver answers, 0 otherwise }
 procedure ShowGrCursor;
 procedure HideGrCursor;
+function GrCursorShown: Boolean;                 { the cursor is on the screen now }
 function ReadGrCursor(var x, y: Integer): Word; { buttons held down: 1 left, 2 right, 4 middle }
 procedure SetGrCursor(x, y: Integer);
 
@@ -15,13 +16,22 @@ implementation
 uses Dos, Graph;
 
 const
-  { 16 x 16 arrow pointing to the upper left: 16 screen-mask rows, then 16 cursor rows;
-    bit 15 is the leftmost pixel }
+  { 16 x 16 slim arrow, black with a white edge, its tip at the upper left: 16 screen-mask rows, then 16 cursor rows;
+    bit 15 is the leftmost pixel. A pixel is the screen ANDed with the screen mask and XORed with the cursor mask:
+    1/0 leaves the screen, 0/0 is black, 0/1 white.
+      O...............  OXXXXXXXO.......
+      OO..............  OXXXXXXXXO......
+      OXO.............  OXXXXXOOOOO.....
+      OXXO............  OXXOXXO.........
+      OXXXO...........  OXO.OXXO........
+      OXXXXO..........  OO..OXXO........
+      OXXXXXO.........  O....OXXO.......
+      OXXXXXXO........  ......OO........ }
   Cursor: array[1..32] of Word = (
-    $3FFF, $1FFF, $07FF, $81FF, $807F, $C01F, $C007, $E001,
-    $E000, $F001, $F003, $F801, $F840, $FFE0, $FFF0, $FFF8,
-    $8000, $4000, $7000, $3C00, $3F00, $1FC0, $1FF0, $0FFC,
-    $0F0F, $070C, $0708, $03FC, $031E, $000F, $0007, $0003);
+    $7FFF, $3FFF, $1FFF, $0FFF, $07FF, $03FF, $01FF, $00FF,
+    $007F, $003F, $001F, $01FF, $10FF, $30FF, $787F, $FCFF,
+    $8000, $C000, $A000, $9000, $8800, $8400, $8200, $8100,
+    $8080, $8040, $83E0, $9200, $A900, $C900, $8480, $0300);
 
 var
   Shown: Boolean;   { the driver counts hide calls, so show and hide only call it when the state changes }
@@ -75,6 +85,11 @@ begin
   r.AX := 2;
   Intr($33, r);
   Shown := False
+end;
+
+function GrCursorShown: Boolean;
+begin
+  GrCursorShown := Shown
 end;
 
 function ReadGrCursor(var x, y: Integer): Word;
