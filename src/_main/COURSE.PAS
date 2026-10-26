@@ -700,6 +700,7 @@ procedure ShowRules;
   logo's screen has its prompt, how to go back }
 const
   Pitch = 20;                        { from one line to the next; a section has a blank line before it }
+  Rows = 14;                         { the 12 lines, and the blank ones before the two later sections }
 var
   s: string;
   x, y, lineY: Integer;
@@ -722,10 +723,12 @@ var
 
 begin
   ClearDevice;
-  y := 84;
+  { the rules in the middle of the room over the prompt; the last line is 16 dots tall }
+  y := (GetMaxY - 60 - (Rows * Pitch - (Pitch - 16))) div 2;
   Line('Բովանդակություն', Green);
   Line('Խաղի նպատակն է դուրս բերել հակառակորդին կառավարումից:', LightGray);
-  Line('Խաղացողը համարվում է հաղթող, եթե հակառակորդը բախվել է ինչ-որ խոչընդոտի:', LightGray);
+  Line('Խաղացողը համարվում է հաղթող,', LightGray);
+  Line('եթե հակառակորդը բախվել է ինչ-որ խոչընդոտի:', LightGray);
   y := y + Pitch;
   Line('Կառավարում', Brown);
   { the arrows are the font's own, characters 24 to 27 }
