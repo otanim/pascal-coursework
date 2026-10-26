@@ -59,6 +59,9 @@ type
   TMenu = record
     Count, TextSize: Integer;
     Vertical: Boolean;               { chosen with up/down instead of left/right }
+    Current: Integer;                { the option picked out: Choose starts there, and leaves it on the last one }
+    OpenDown: set of 1..4;           { options that open a list under them: Down chooses them too }
+    UpLeaves: Boolean;               { a list under a menu: Up on its first option goes back to it, as Esc does }
     Items: array[1..4] of TOption;
   end;
 
@@ -139,15 +142,15 @@ begin
     ch := ReadKey
 end;
 
-procedure WaitKey;
-{ wait for a fresh key press or click: drop keys already typed or still held down, and a button still held. A tap on
-  a touch screen is a click, so a phone without pads gets on too. A click counts once its button is let go, so it
-  doesn't also click what the screen shows next }
+procedure WaitFor(var ch: Char);
+{ wait for a fresh key press or click, and give the key, or #0 for a click or an arrow: drop keys already typed or
+  still held down, and a button still held. A tap on a touch screen is a click, so a phone without pads gets on too.
+  A click counts once its button is let go, so it doesn't also click what the screen shows next }
 var
-  ch: Char;
   Ext: Boolean;
   x, y: Integer;
 begin
+  ch := #0;
   repeat
     while KeyPressed do
       ch := ReadKey;
@@ -167,7 +170,17 @@ begin
       Exit
     end
   end;
-  GetKey(ch, Ext)
+  GetKey(ch, Ext);
+  if Ext then
+    ch := #0
+end;
+
+procedure WaitKey;
+{ wait for a fresh key press or click, whichever it is }
+var
+  ch: Char;
+begin
+  WaitFor(ch)
 end;
 
 function KeyWay(ch: Char; Ext: Boolean): Char;
@@ -401,6 +414,29 @@ begin
     DrawOption(m, i, selected)
 end;
 
+procedure DrawMenuOpen(var m: TMenu; open: Integer);
+{ m behind the list its option open opened: that option stays picked out, and the others wait in grey }
+var
+  i: Integer;
+begin
+  for i := 1 to m.Count do
+    if i = open then
+      DrawOption(m, i, i)
+    else
+      DrawOption(m, i, 0)
+end;
+
+procedure EraseMenu(var m: TMenu);
+{ the options of m painted over with the black of the screen }
+var
+  i: Integer;
+begin
+  SetFillStyle(SolidFill, Black);
+  for i := 1 to m.Count do
+    with m.Items[i] do
+      Bar(X1, Y1, X2, Y2)
+end;
+
 procedure MoveSelection(var m: TMenu; var k: Integer; next: Integer);
 { the selection from option k to option next: only those two are drawn again, so the others don't flicker }
 var
@@ -427,7 +463,9 @@ end;
 
 function Choose(var m: TMenu): Integer;
 { pick an option with the arrow keys or W A S D, and Enter or Space, or with the mouse: moving over an option picks
-  it out, and a click, or a tap, chooses it. Esc gives 0. The mouse cursor shows only while the menu waits }
+  it out, and a click, or a tap, chooses it. Down chooses an option that opens a list under it, and Up on the first
+  option of such a list gives 0, as Esc does. The menu starts on the option picked out last. The mouse cursor shows
+  only while the menu waits }
 var
   k, over, chosen, lastX, lastY: Integer;
   ch, way, prevKey, nextKey: Char;
@@ -444,7 +482,9 @@ begin
     prevKey := ScanLeft;
     nextKey := ScanRight
   end;
-  k := 1;
+  k := m.Current;
+  if (k < 1) or (k > m.Count) then
+    k := 1;
   chosen := -1;
   DrawMenu(m, k);
   buttons := ReadMouse;
@@ -474,8 +514,12 @@ begin
       way := KeyWay(ch, Ext);
       if way = nextKey then
         MoveSelection(m, k, k mod m.Count + 1)
+      else if (way = prevKey) and m.UpLeaves and (k = 1) then
+        chosen := 0
       else if way = prevKey then
-        MoveSelection(m, k, (k + m.Count - 2) mod m.Count + 1);
+        MoveSelection(m, k, (k + m.Count - 2) mod m.Count + 1)
+      else if (way = ScanDown) and not m.Vertical and (k in m.OpenDown) then
+        chosen := k;
       if not Ext and ((ch = KeyEnter) or (ch = KeySpace)) then
         chosen := k
       else if not Ext and (ch = KeyEsc) then
@@ -483,14 +527,29 @@ begin
     end
   until chosen >= 0;
   HideGrCursor;
+  if chosen > 0 then
+    m.Current := chosen
+  else
+    m.Current := k;
   Choose := chosen
 end;
 
-procedure BuildTronMenu(var m: TMenu);
+procedure StartMenu(var m: TMenu; count, size: Integer; vertical: Boolean);
+{ a menu of count options with captions at the given size, its first one picked out }
 begin
-  m.Count := 4;
-  m.TextSize := 1;
-  m.Vertical := False;
+  m.Count := count;
+  m.TextSize := size;
+  m.Vertical := vertical;
+  m.Current := 1;
+  m.OpenDown := [];
+  m.UpLeaves := False
+end;
+
+procedure BuildTronMenu(var m: TMenu);
+{ the modes, which open the number of rounds under them, the rules and Exit }
+begin
+  StartMenu(m, 4, 1, False);
+  m.OpenDown := [1, 2];
   SetOption(m.Items[1], 82, divy, 182, divy + 50, '1 խաղացող');
   SetOption(m.Items[2], 207, divy, 307, divy + 50, '2 խաղացող');
   SetOption(m.Items[3], 332, divy, 432, divy + 50, 'Պայմաններ');
@@ -503,9 +562,8 @@ var
   x: Integer;
 begin
   x := centre - 40;
-  m.Count := 4;
-  m.TextSize := 1;
-  m.Vertical := True;
+  StartMenu(m, 4, 1, True);
+  m.UpLeaves := True;
   SetOption(m.Items[1], x, divy + 62, x + 80, divy + 92, '5 խաղ');
   SetOption(m.Items[2], x, divy + 102, x + 80, divy + 132, '10 խաղ');
   SetOption(m.Items[3], x, divy + 142, x + 80, divy + 172, '25 խաղ');
@@ -514,9 +572,7 @@ end;
 
 procedure BuildYesNoMenu(var m: TMenu);
 begin
-  m.Count := 2;
-  m.TextSize := 2;
-  m.Vertical := False;
+  StartMenu(m, 2, 2, False);
   SetOption(m.Items[1], 207, divy, 307, divy + 50, 'Այո');
   SetOption(m.Items[2], 332, divy, 432, divy + 50, 'Ոչ')
 end;
@@ -751,6 +807,7 @@ end;
 procedure PlayMatch(rounds: Integer);
 { rounds until one colour has won the given number of them, then offer a new match }
 var
+  ch: Char;
   blueScore, yellowScore: Integer;
   again: Boolean;
   yesNo: TMenu;
@@ -781,7 +838,9 @@ begin
         else if Winner = 2 then
           yellowScore := yellowScore + 1;
         DrawScore(yellowScore, blueScore, True);
-        WaitKey
+        { the next round on a key or a click; Esc leaves the match, as it does in a round }
+        WaitFor(ch);
+        Quit := ch = KeyEsc
       end;
       ClearDevice
     end;
@@ -817,10 +876,11 @@ procedure TronMenu;
   Back from a match or the rules, the logo is there again at once, with the menu under it }
 const
   LogoPause = 2000;                  { milliseconds a logo traced to its end stays alone before the prompt }
+  MatchRounds: array[1..4] of Integer = (5, 10, 25, 50);
   Prompt = 'Սեղմեք ցանկացած ստեղն խաղը սկսելու համար';
 var
   modes, rounds: TMenu;
-  choice, waited: Integer;
+  choice, picked, waited: Integer;
 begin
   HideGrCursor;
   ClearDevice;
@@ -845,19 +905,18 @@ begin
     if (choice = 1) or (choice = 2) then
     begin
       OnePlayer := choice = 1;
-      DrawMenu(modes, 0);
-      if OnePlayer then
-        BuildRoundsMenu(rounds, (modes.Items[1].X1 + modes.Items[1].X2) div 2)
+      DrawMenuOpen(modes, choice);
+      BuildRoundsMenu(rounds, (modes.Items[choice].X1 + modes.Items[choice].X2) div 2);
+      picked := Choose(rounds);
+      if picked = 0 then
+        { back: the list goes, and the menu takes the keys again on the same mode }
+        EraseMenu(rounds)
       else
-        BuildRoundsMenu(rounds, (modes.Items[2].X1 + modes.Items[2].X2) div 2);
-      case Choose(rounds) of
-        1: PlayMatch(5);
-        2: PlayMatch(10);
-        3: PlayMatch(25);
-        4: PlayMatch(50)
-      end;
-      ClearDevice;
-      DrawLogo(False)
+      begin
+        PlayMatch(MatchRounds[picked]);
+        ClearDevice;
+        DrawLogo(False)
+      end
     end
     else if choice = 3 then
     begin
