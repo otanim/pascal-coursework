@@ -1,6 +1,6 @@
 {
   "name": "pascal-coursework",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "COURSE.EXE, a Turbo Pascal coursework done at SEUA in 2013: a DOS desktop with the Tron game and Problem 547",
   "private": true,
   "repository": "github:otanim/pascal-coursework",

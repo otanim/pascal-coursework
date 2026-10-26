@@ -722,7 +722,7 @@ var
 
 begin
   ClearDevice;
-  y := 96;
+  y := 84;
   Line('Բովանդակություն', Green);
   Line('Խաղի նպատակն է դուրս բերել հակառակորդին կառավարումից:', LightGray);
   Line('Խաղացողը համարվում է հաղթող, եթե հակառակորդը բախվել է ինչ-որ խոչընդոտի:', LightGray);
@@ -734,11 +734,13 @@ begin
   Line('Դեղին խաղացող` վերեւ` W, ներքեւ` S, աջ` D, ձախ` A:', LightGray);
   Paint('Դեղին', Yellow);
   y := y + Pitch;
-  Line('Ռեժիմներ', LightBlue);
-  Line('Խաղացողն ընդդեմ համակարգչի: Խաղացողի գույնը` կապույտ, համակարգչինը` դեղին:', LightGray);
+  Line('Տարբերակներ', LightBlue);
+  Line('Խաղացողն ընդդեմ համակարգչի.', LightGray);
+  Line('Խաղացողի գույնը` կապույտ, համակարգչինը` դեղին:', LightGray);
   Paint('կապույտ', Cyan);
   Paint('դեղին', Yellow);
-  Line('Խաղացողն ընդդեմ խաղացողի: Խաղացողների գույները` դեղին եւ կապույտ:', LightGray);
+  Line('Խաղացողն ընդդեմ խաղացողի.', LightGray);
+  Line('Խաղացողների գույները` դեղին եւ կապույտ:', LightGray);
   Paint('դեղին', Yellow);
   Paint('կապույտ', Cyan);
   SetTextStyle(DefaultFont, HorizDir, 1);
