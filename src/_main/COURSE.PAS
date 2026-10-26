@@ -8,6 +8,8 @@ program Course;
 uses Dos, Crt, Graph, GrMouse;
 
 const
+  AnyKey = 'ցանկացած ստեղն';         { "any key" in a prompt, drawn in AnyKeyColor }
+  AnyKeyColor = LightGreen;
   { Tron directions }
   DirLeft = 1;
   DirUp = 2;
@@ -411,6 +413,23 @@ begin
   OutTextXY(InkX(0, GetMaxX, s), y, s)
 end;
 
+procedure OutPrompt(y: Integer; s: string);
+{ a prompt centred on the screen in the current text style and color, its "any key" in AnyKeyColor, so it stands out }
+var
+  x: Integer;
+  color: Word;
+begin
+  x := InkX(0, GetMaxX, s);
+  OutTextXY(x, y, s);
+  if Pos(AnyKey, s) > 0 then
+  begin
+    color := GetColor;
+    SetColor(AnyKeyColor);
+    OutTextXY(x + TextWidth(Copy(s, 1, Pos(AnyKey, s) - 1)), y, AnyKey);
+    SetColor(color)
+  end
+end;
+
 procedure TypeText(x0, y0: Integer; color: Word; size: Word; s: string);
 { write s one character at a time, like a typewriter. A mouse cursor on the screen stays there and moves as the mouse
   does: it is hidden only for a moment, when a character is drawn under it, which would otherwise leave marks }
@@ -748,7 +767,7 @@ begin
   Paint('կապույտ', Cyan);
   SetTextStyle(DefaultFont, HorizDir, 1);
   SetColor(LightGray);
-  OutCentered(GetMaxY - 60, 'Սեղմեք ցանկացած ստեղն գլխավոր ընտրացանկ վերադառնալու համար');
+  OutPrompt(GetMaxY - 60, 'Սեղմեք ցանկացած ստեղն գլխավոր ընտրացանկ վերադառնալու համար');
   WaitKey;
   ClearDevice
 end;
@@ -1001,7 +1020,7 @@ begin
     { the prompt at the foot of the screen; a key or a click takes it away and brings the menu under the logo }
     SetTextStyle(DefaultFont, HorizDir, 1);
     SetColor(LightGray);
-    OutCentered(GetMaxY - 60, Prompt);
+    OutPrompt(GetMaxY - 60, Prompt);
     WaitKey;
     SetColor(Black);
     OutCentered(GetMaxY - 60, Prompt)
