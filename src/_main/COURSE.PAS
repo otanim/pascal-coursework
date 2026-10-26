@@ -95,6 +95,7 @@ var
   MoveCount: Integer;                { the moves of the mouse without a button since MoveTick }
   MoveTick: Word;                    { the BIOS timer tick, 18.2 a second, of the first of them }
   ClockText: string[8];
+  MouseThere: Boolean;               { a mouse driver answered at the start; without one, only keys count }
 
   { Tron: cycle 1 is cyan (arrow keys), cycle 2 is yellow (WASD or the computer) }
   Xpos1, Ypos1, Npos1: Integer;
@@ -139,16 +140,33 @@ begin
 end;
 
 procedure WaitKey;
-{ wait for a fresh key press: drop keys already typed or still held down }
+{ wait for a fresh key press or click: drop keys already typed or still held down, and a button still held. A tap on
+  a touch screen is a click, so a phone without pads gets on too. A click counts once its button is let go, so it
+  doesn't also click what the screen shows next }
 var
   ch: Char;
   Ext: Boolean;
+  x, y: Integer;
 begin
   repeat
     while KeyPressed do
       ch := ReadKey;
     Delay(300)
   until not KeyPressed;
+  if MouseThere then
+  begin
+    while ReadGrCursor(x, y) <> 0 do
+      Delay(10);
+    repeat
+      Delay(10)
+    until KeyPressed or (ReadGrCursor(x, y) <> 0);
+    if not KeyPressed then
+    begin
+      while ReadGrCursor(x, y) <> 0 do
+        Delay(10);
+      Exit
+    end
+  end;
   GetKey(ch, Ext)
 end;
 
@@ -1822,6 +1840,7 @@ begin
     CloseGraph;
     Halt(1)
   end;
+  MouseThere := True;
   GetMem(MenuBack, ImageSize(0, GetMaxY - 253, 153, GetMaxY - 39));
   GetMem(SubmenuBack, ImageSize(153, GetMaxY - 181, 305, GetMaxY - 132));
   GetMem(MenuImage, ImageSize(0, GetMaxY - 253, 153, GetMaxY - 39));
